@@ -375,10 +375,12 @@ with st.sidebar:
     st.markdown("---")
  
     if st.button("⬇️ Sincronizar Drive"):
-        with st.spinner("Descargando archivos desde Drive..."):
+        with st.spinner("Descargando y procesando datos..."):
             try:
                 sincronizar()
-                st.success("✓ Sincronización completada")
+                correr_etl(sync_drive=False)
+                correr_etl_cc(sync_drive=False)
+                st.cache_data.clear(); st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
  

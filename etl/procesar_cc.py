@@ -40,7 +40,10 @@ def procesar_cc() -> tuple:
     if not path.exists():
         raise FileNotFoundError(f"No se encontró {path}")
 
-    df = pd.read_excel(path, sheet_name="hoja1")
+    xls = pd.ExcelFile(path)
+    nombres = {s.lower(): s for s in xls.sheet_names}
+    sheet = nombres.get("hoja1", xls.sheet_names[0])
+    df = pd.read_excel(path, sheet_name=sheet)
 
     # Tipos
     df["Fecha"]             = pd.to_datetime(df["Fecha"],             errors="coerce")
@@ -109,14 +112,15 @@ def guardar_csv(df: pd.DataFrame, nombre: str):
         print(f"  ✓ {nombre}.csv ({len(df)} filas)")
 
 
-def correr_etl_cc():
+def correr_etl_cc(sync_drive: bool = True):
     print("Procesando cuentas corrientes...")
     
     # Sincronizar archivos desde Google Drive
-    try:
-        sincronizar()
-    except Exception as e:
-        print(f"  ⚠ Sincronización con Drive fallida (continuando con archivos locales): {e}")
+    if sync_drive:
+        try:
+            sincronizar()
+        except Exception as e:
+            print(f"  ⚠ Sincronización con Drive fallida (continuando con archivos locales): {e}")
     
     try:
         movimientos, saldos = procesar_cc()
@@ -127,6 +131,9 @@ def correr_etl_cc():
         return movimientos, saldos
     except FileNotFoundError as e:
         print(f"  ✗ {e}")
+        return None, None
+    except Exception as e:
+        print(f"  ✗ Error ETL cuentas corrientes: {e}")
         return None, None
 
 

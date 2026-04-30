@@ -49,7 +49,10 @@ def procesar_facturas() -> pd.DataFrame:
             "Exportá el reporte desde Finnegans GO y guardalo en data/raw/datos_facturacion.xlsx"
         )
 
-    df = pd.read_excel(path, sheet_name="hoja1")
+    xls = pd.ExcelFile(path)
+    nombres = {s.lower(): s for s in xls.sheet_names}
+    sheet = nombres.get("hoja1", xls.sheet_names[0])
+    df = pd.read_excel(path, sheet_name=sheet)
 
     df["Fecha"] = pd.to_datetime(df["Fecha"], dayfirst=True, errors="coerce")
 
@@ -131,15 +134,16 @@ def guardar(df: pd.DataFrame, nombre: str):
     print(f"  ✓ {nombre}.parquet guardado ({len(df)} filas)")
 
 
-def correr_etl():
+def correr_etl(sync_drive: bool = True):
     print("─" * 40)
     print("Corriendo ETL Finnegans BI...")
     
     # Sincronizar archivos desde Google Drive
-    try:
-        sincronizar()
-    except Exception as e:
-        print(f"  ⚠ Sincronización con Drive fallida (continuando con archivos locales): {e}")
+    if sync_drive:
+        try:
+            sincronizar()
+        except Exception as e:
+            print(f"  ⚠ Sincronización con Drive fallida (continuando con archivos locales): {e}")
     
     facturas = None
     try:
@@ -153,6 +157,8 @@ def correr_etl():
         print(f"ETL finalizado. {len(facturas)} registros procesados.")
     except FileNotFoundError as e:
         print(f"  ✗ {e}")
+    except Exception as e:
+        print(f"  ✗ Error ETL facturación: {e}")
     print("─" * 40)
     return facturas
 
