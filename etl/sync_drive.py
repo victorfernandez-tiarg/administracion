@@ -46,45 +46,45 @@ def _get_drive_service():
 
 def descargar_archivo(file_id: str, file_name: str) -> bool:
     """
-    Descarga un archivo desde Google Drive
-    
-    Args:
-        file_id: ID del archivo en Google Drive
-        file_name: Nombre local para guardar (ej: "datos_facturacion.xlsx")
-    
-    Returns:
-        True si descargó exitosamente, False si hay error
+    Exporta un Google Sheet como xlsx y lo guarda en data/raw/.
+    Funciona tanto con Google Sheets como con archivos .xlsx nativos de Drive.
     """
     try:
         service = _get_drive_service()
         RAW_DIR.mkdir(parents=True, exist_ok=True)
-        
         local_path = RAW_DIR / file_name
-        
-        # Obtener metadatos del archivo (name y tamaño)
+
+        # Verificar tipo de archivo
         file_metadata = service.files().get(
             fileId=file_id,
-            fields="name, size, modifiedTime"
+            fields="name, mimeType"
         ).execute()
-        
-        file_size_mb = float(file_metadata.get("size", 0)) / (1024 * 1024)
-        print(f"  ↓ Descargando {file_name} ({file_size_mb:.2f} MB)...")
-        
-        # Descargar contenido
-        request = service.files().get_media(fileId=file_id)
-        file_handle = MediaIoBaseDownload(BytesIO(), request)
-        
-        done = False
-        while not done:
-            status, done = file_handle.next_chunk()
-        
-        # Guardar a disco
+
+        mime = file_metadata.get("mimeType", "")
+        print(f"  ↓ Descargando {file_name} (tipo: {mime})...")
+
+        if mime == "application/vnd.google-apps.spreadsheet":
+            # Es un Google Sheet → exportar como xlsx
+            content = service.files().export_media(
+                fileId=file_id,
+                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ).execute()
+        else:
+            # Es un archivo binario normal (.xlsx subido)
+            request = service.files().get_media(fileId=file_id)
+            buf = BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            content = buf.getvalue()
+
         with open(local_path, "wb") as f:
-            f.write(file_handle.getbuffer().getvalue())
-        
+            f.write(content)
+
         print(f"  ✓ {file_name} sincronizado ({local_path})")
         return True
-        
+
     except Exception as e:
         print(f"  ✗ Error descargando {file_name}: {e}")
         return False
