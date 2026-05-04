@@ -353,6 +353,9 @@ if not sin_fact and "fecha" in df_fact_raw.columns:
     if not fechas_validas.empty:
         fecha_min_default = fechas_validas.min().date()
         fecha_max_default = fechas_validas.max().date()
+
+fact_rows = 0 if sin_fact else len(df_fact_raw)
+cc_rows = 0 if sin_cc else len(df_saldos)
  
 # ── Sidebar ────────────────────────────────────────
 with st.sidebar:
@@ -378,8 +381,12 @@ with st.sidebar:
         with st.spinner("Descargando y procesando datos..."):
             try:
                 sincronizar()
-                correr_etl(sync_drive=False)
-                correr_etl_cc(sync_drive=False)
+                facturas = correr_etl(sync_drive=False)
+                _, saldos = correr_etl_cc(sync_drive=False)
+                if facturas is None:
+                    raise RuntimeError("ETL de facturación falló. Revisá columnas/hoja del archivo en Drive.")
+                if saldos is None:
+                    raise RuntimeError("ETL de cuentas corrientes falló. Revisá columnas/hoja del archivo en Drive.")
                 st.cache_data.clear()
                 for k in ["fecha_desde", "fecha_hasta"]:
                     st.session_state.pop(k, None)
@@ -391,17 +398,27 @@ with st.sidebar:
     with col1:
         if st.button("🔄 Facturación", type="primary"):
             with st.spinner("Procesando..."):
-                correr_etl()
-            st.cache_data.clear(); st.rerun()
+                facturas = correr_etl()
+            if facturas is None:
+                st.error("ETL de facturación falló. Revisá el archivo de Drive y los logs.")
+            else:
+                st.cache_data.clear(); st.rerun()
     with col2:
         if st.button("🔄 Ctas. Ctes.", type="primary"):
             with st.spinner("Procesando..."):
-                correr_etl_cc()
-            st.cache_data.clear(); st.rerun()
+                _, saldos = correr_etl_cc()
+            if saldos is None:
+                st.error("ETL de cuentas corrientes falló. Revisá el archivo de Drive y los logs.")
+            else:
+                st.cache_data.clear(); st.rerun()
  
     meta = load_meta()
     if "ultima_actualizacion" in meta:
         st.caption(f"Actualizado: {meta['ultima_actualizacion']} · {meta.get('filas','-'):,} reg.")
+    st.caption(
+        f"Diagnóstico carga · Facturación: {fact_rows:,} filas · CC: {cc_rows:,} filas · "
+        f"Rango: {fecha_min_default.strftime('%d/%m/%Y')} a {fecha_max_default.strftime('%d/%m/%Y')}"
+    )
  
     st.markdown("---")
     st.markdown("**Empresa**")
