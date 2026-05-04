@@ -97,6 +97,9 @@ def procesar_facturas() -> pd.DataFrame:
         "Cantidadesagro":      "cantidad",
     })
 
+    # Asegurar que numero_comprobante sea string para evitar conflictos de tipo en parquet
+    df["numero_comprobante"] = df["numero_comprobante"].astype(str)
+    
     return df
 
 
