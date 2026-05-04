@@ -328,7 +328,11 @@ def load(nombre):
     return None
  
 def fmt_m(v, moneda="ARS"):
-    if moneda == "USD": return f"USD {v:,.0f}"
+    if moneda == "USD":
+        if abs(v) >= 1_000_000_000: return f"USD {v/1_000_000_000:.2f}B"
+        if abs(v) >= 1_000_000:     return f"USD {v/1_000_000:.2f}M"
+        if abs(v) >= 1_000:         return f"USD {v/1_000:.1f}K"
+        return f"USD {v:,.0f}"
     if abs(v) >= 1_000_000: return f"$ {v/1_000_000:.1f}M"
     if abs(v) >= 1_000:     return f"$ {v/1_000:.0f}K"
     return f"$ {v:.0f}"

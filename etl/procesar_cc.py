@@ -46,8 +46,8 @@ def procesar_cc() -> tuple:
     df = pd.read_excel(path, sheet_name=sheet)
 
     # Tipos
-    df["Fecha"]             = pd.to_datetime(df["Fecha"],             errors="coerce")
-    df["Fecha vencimiento"] = pd.to_datetime(df["Fecha vencimiento"], errors="coerce")
+    df["Fecha"]             = pd.to_datetime(df["Fecha"], dayfirst=True, errors="coerce")
+    df["Fecha vencimiento"] = pd.to_datetime(df["Fecha vencimiento"], dayfirst=True, errors="coerce")
     for col in ["Debe ppal", "Haber ppal", "Saldo ppal", "Cotizacionmonedasecundaria"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
@@ -58,9 +58,17 @@ def procesar_cc() -> tuple:
 
     hoy = pd.Timestamp(date.today())
 
-    # Saldo real = último registro por cliente
-    idx_ultimo = df.groupby("Cliente")["Fecha"].idxmax()
-    saldos = df.loc[idx_ultimo, ["Cliente", "Saldo ppal"]].rename(
+    # Saldo real = último movimiento por cliente (misma fecha resuelta por orden de aparición)
+    # Evita errores de idxmax cuando hay fechas repetidas, datos pegados desde Sheets o filas desordenadas.
+    df_mov = df.reset_index().rename(columns={"index": "_orden_origen"})
+    df_mov["_fecha_sort"] = df_mov["Fecha"].fillna(pd.Timestamp.min)
+    ultimos = (
+        df_mov[df_mov["Cliente"].notna() & df_mov["Cliente"].ne("")]
+        .sort_values(["Cliente", "_fecha_sort", "_orden_origen"])
+        .groupby("Cliente", as_index=False)
+        .tail(1)
+    )
+    saldos = ultimos[["Cliente", "Saldo ppal"]].rename(
         columns={"Saldo ppal": "saldo_actual"}
     ).copy()
 
