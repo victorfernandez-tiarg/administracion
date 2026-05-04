@@ -380,7 +380,10 @@ with st.sidebar:
                 sincronizar()
                 correr_etl(sync_drive=False)
                 correr_etl_cc(sync_drive=False)
-                st.cache_data.clear(); st.rerun()
+                st.cache_data.clear()
+                for k in ["fecha_desde", "fecha_hasta"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
  
