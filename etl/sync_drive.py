@@ -86,7 +86,9 @@ def descargar_archivo(file_id: str, file_name: str) -> bool:
         return True
 
     except Exception as e:
-        print(f"  ✗ Error descargando {file_name}: {e}")
+        import traceback
+        print(f"  ✗ Error descargando {file_name}: {type(e).__name__}: {e}")
+        traceback.print_exc()
         return False
 
 
@@ -103,9 +105,10 @@ def sincronizar():
     resultados = {}
     for file_name, file_id in file_ids.items():
         if not file_id:
-            print(f"  ⊘ Saltando {file_name}: ID no configurado")
+            print(f"  ⊘ Saltando {file_name}: ID no configurado (env={file_name.replace('.xlsx', '').upper()}_FILE_ID)")
             resultados[file_name] = False
             continue
+        print(f"  → Intenta descargar {file_name} (ID: {file_id[:20]}...)")
         resultados[file_name] = descargar_archivo(file_id, file_name)
     
     print("─" * 50)
