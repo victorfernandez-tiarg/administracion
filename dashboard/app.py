@@ -424,11 +424,26 @@ with st.sidebar:
 # ── Filtrar facturación ────────────────────────────
 # ── Período — prominente, arriba del dashboard ────
 st.markdown("**📅 Período**")
+
+# Asegurar defaults y estado persistido dentro del rango disponible
+fecha_desde_default = max(fecha_min_default, date(fecha_max_default.year, 1, 1))
+fecha_hasta_default = fecha_max_default
+
+if "fecha_desde" in st.session_state:
+    v = st.session_state["fecha_desde"]
+    if isinstance(v, date):
+        st.session_state["fecha_desde"] = min(max(v, fecha_min_default), fecha_max_default)
+
+if "fecha_hasta" in st.session_state:
+    v = st.session_state["fecha_hasta"]
+    if isinstance(v, date):
+        st.session_state["fecha_hasta"] = min(max(v, fecha_min_default), fecha_max_default)
+
 pc1, pc2 = st.columns(2)
 with pc1:
     fecha_desde = st.date_input(
         "Desde",
-        value=date(fecha_max_default.year, 1, 1),
+        value=fecha_desde_default,
         min_value=fecha_min_default,
         max_value=fecha_max_default,
         format="DD/MM/YYYY",
@@ -951,9 +966,13 @@ with t4:
             cruce = fact_cli.merge(
                 df_saldos[["Cliente","saldo_actual","aging","dias_vencido","ratio_cobranza"]],
                 on="Cliente", how="outer"
-            ).fillna(0)
+            )
+            for col in ["Facturado ARS", "saldo_actual", "dias_vencido", "ratio_cobranza"]:
+                if col in cruce.columns:
+                    cruce[col] = pd.to_numeric(cruce[col], errors="coerce").fillna(0)
+            if "aging" in cruce.columns:
+                cruce["aging"] = cruce["aging"].fillna("Sin deuda")
             cruce = cruce.rename(columns={"saldo_actual":"Deuda ARS"})
-            cruce["aging"] = cruce["aging"].replace(0, "Sin deuda")
             cruce = cruce.sort_values("Facturado ARS", ascending=False)
         else:
             cruce = fact_cli.copy()
