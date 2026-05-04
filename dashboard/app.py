@@ -442,25 +442,26 @@ with st.sidebar:
 # ── Período — prominente, arriba del dashboard ────
 st.markdown("**📅 Período**")
 
-# Asegurar defaults y estado persistido dentro del rango disponible
+# Inicializar session_state con valores válidos dentro del rango disponible
 fecha_desde_default = max(fecha_min_default, date(fecha_max_default.year, 1, 1))
 fecha_hasta_default = fecha_max_default
 
-if "fecha_desde" in st.session_state:
-    v = st.session_state["fecha_desde"]
-    if isinstance(v, date):
-        st.session_state["fecha_desde"] = min(max(v, fecha_min_default), fecha_max_default)
+if "fecha_desde" not in st.session_state or not isinstance(st.session_state["fecha_desde"], date):
+    st.session_state["fecha_desde"] = fecha_desde_default
+else:
+    # Asegurar que el valor está dentro del rango disponible
+    st.session_state["fecha_desde"] = min(max(st.session_state["fecha_desde"], fecha_min_default), fecha_max_default)
 
-if "fecha_hasta" in st.session_state:
-    v = st.session_state["fecha_hasta"]
-    if isinstance(v, date):
-        st.session_state["fecha_hasta"] = min(max(v, fecha_min_default), fecha_max_default)
+if "fecha_hasta" not in st.session_state or not isinstance(st.session_state["fecha_hasta"], date):
+    st.session_state["fecha_hasta"] = fecha_hasta_default
+else:
+    # Asegurar que el valor está dentro del rango disponible
+    st.session_state["fecha_hasta"] = min(max(st.session_state["fecha_hasta"], fecha_min_default), fecha_max_default)
 
 pc1, pc2 = st.columns(2)
 with pc1:
     fecha_desde = st.date_input(
         "Desde",
-        value=fecha_desde_default,
         min_value=fecha_min_default,
         max_value=fecha_max_default,
         format="DD/MM/YYYY",
@@ -469,7 +470,6 @@ with pc1:
 with pc2:
     fecha_hasta = st.date_input(
         "Hasta",
-        value=fecha_max_default,
         min_value=fecha_min_default,
         max_value=fecha_max_default,
         format="DD/MM/YYYY",
