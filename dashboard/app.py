@@ -625,7 +625,7 @@ with t1:
                 on_select="rerun",
                 selection_mode="single-row",
                 column_config={
-                    "Saldo": st.column_config.NumberColumn(format="$ %.0f"),
+                    "Saldo": st.column_config.NumberColumn(format="$ %,.0f"),
                     "Días": st.column_config.NumberColumn(format="%d días"),
                 },
             )
@@ -648,7 +648,7 @@ with t1:
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "Saldo actual": st.column_config.NumberColumn(format="$ %.0f"),
+                            "Saldo actual": st.column_config.NumberColumn(format="$ %,.0f"),
                             "% Cobrado": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
                         },
                     )
@@ -707,9 +707,9 @@ with t1:
 
         col_f_tabla, col_f_graf = st.columns(2)
         with col_f_tabla:
-            cfg_top_f = {"Facturado": st.column_config.NumberColumn(format="$ %.0f")}
+            cfg_top_f = {"Facturado": st.column_config.NumberColumn(format="$ %,.0f")}
             if "Deuda" in top_f.columns:
-                cfg_top_f["Deuda"] = st.column_config.NumberColumn(format="$ %.0f")
+                cfg_top_f["Deuda"] = st.column_config.NumberColumn(format="$ %,.0f")
             st.dataframe(top_f, use_container_width=True, hide_index=True, column_config=cfg_top_f)
 
         with col_f_graf:
