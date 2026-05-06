@@ -629,6 +629,18 @@ with st.sidebar:
         st.caption("Hacé preguntas sobre los datos en la pestaña Asistente IA.")
  
 # ── Filtrar facturación ────────────────────────────
+# ═══════════════════════════════════════════════════
+# TABS (arriba del contenido)
+# ═══════════════════════════════════════════════════
+t1, t2, t3, t4, t5, t6 = st.tabs([
+    "🏠 Resumen ejecutivo",
+    "📄 Facturación",
+    "💳 Cuentas corrientes",
+    "👥 Clientes",
+    "🤖 Asistente IA",
+    "📋 Detalle",
+])
+
 # ── Período — prominente, arriba del dashboard ────
 st.markdown("**📅 Período**")
 
@@ -743,19 +755,6 @@ if not sin_cc:
     sin_cc = df_saldos.empty
 if not sin_fact:
     sin_fact = df.empty
- 
-# ═══════════════════════════════════════════════════
-# TABS
-# ═══════════════════════════════════════════════════
-t1, t2, t3, t4, t5, t6 = st.tabs([
-    "🏠 Resumen ejecutivo",
-    "📄 Facturación",
-    "💳 Cuentas corrientes",
-    "👥 Clientes",
-    "🤖 Asistente IA",
-    "📋 Detalle",
-])
- 
  
 # ══════════════════════════════════════════════
 # TAB 1 — RESUMEN EJECUTIVO (el Steve Jobs)
