@@ -308,6 +308,51 @@ def resumir_vencimientos(
     return pd.DataFrame(resumen)
 
 
+def conciliar_saldos(df_mov: pd.DataFrame) -> pd.DataFrame:
+    base = df_mov[df_mov["Cliente"].notna() & df_mov["Cliente"].ne("")].copy()
+    if base.empty:
+        return pd.DataFrame(columns=[
+            "Cliente",
+            "saldo_inicial",
+            "debe_total",
+            "haber_total",
+            "saldo_reconstruido",
+            "saldo_final_ledger",
+            "dif_conciliacion",
+            "conciliado",
+        ])
+
+    base["Debe ppal"] = pd.to_numeric(base["Debe ppal"], errors="coerce").fillna(0)
+    base["Haber ppal"] = pd.to_numeric(base["Haber ppal"], errors="coerce").fillna(0)
+    base["Saldo ppal"] = pd.to_numeric(base["Saldo ppal"], errors="coerce").fillna(0)
+    base["_fecha_sort"] = base["Fecha"].fillna(pd.Timestamp.min)
+
+    primeros = (
+        base.sort_values(["Cliente", "_fecha_sort", "_orden_origen"])
+        .groupby("Cliente", as_index=False)
+        .head(1)
+        [["Cliente", "Saldo ppal"]]
+        .rename(columns={"Saldo ppal": "saldo_inicial"})
+    )
+    ultimos = (
+        base.sort_values(["Cliente", "_fecha_sort", "_orden_origen"])
+        .groupby("Cliente", as_index=False)
+        .tail(1)
+        [["Cliente", "Saldo ppal"]]
+        .rename(columns={"Saldo ppal": "saldo_final_ledger"})
+    )
+    totales = (
+        base.groupby("Cliente", as_index=False)
+        .agg(debe_total=("Debe ppal", "sum"), haber_total=("Haber ppal", "sum"))
+    )
+
+    conc = primeros.merge(ultimos, on="Cliente", how="inner").merge(totales, on="Cliente", how="left")
+    conc["saldo_reconstruido"] = conc["saldo_inicial"] + conc["debe_total"] - conc["haber_total"]
+    conc["dif_conciliacion"] = conc["saldo_final_ledger"] - conc["saldo_reconstruido"]
+    conc["conciliado"] = conc["dif_conciliacion"].abs() <= 1.0
+    return conc
+
+
 def procesar_cc() -> tuple:
     path = RAW_DIR / "cc_clientes.xlsx"
     if not path.exists():
@@ -344,6 +389,16 @@ def procesar_cc() -> tuple:
     saldos = ultimos[["Cliente", "Saldo ppal"]].rename(
         columns={"Saldo ppal": "saldo_actual"}
     ).copy()
+
+    conciliacion = conciliar_saldos(df_mov)
+    saldos = saldos.merge(
+        conciliacion[[
+            "Cliente", "saldo_inicial", "debe_total", "haber_total",
+            "saldo_reconstruido", "saldo_final_ledger", "dif_conciliacion", "conciliado"
+        ]],
+        on="Cliente",
+        how="left",
+    )
 
     resumen_venc = resumir_vencimientos(df, saldos, hoy)
     saldos = saldos.merge(resumen_venc, on="Cliente", how="left")

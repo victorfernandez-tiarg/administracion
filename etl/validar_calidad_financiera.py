@@ -63,6 +63,14 @@ def main() -> int:
             dias = pd.to_numeric(cc["dias_vencido"], errors="coerce").fillna(0)
             estado &= check(bool((dias >= 0).all()), "dias_vencido no negativos", "Hay dias_vencido negativos")
 
+        if "dif_conciliacion" in cc.columns:
+            dif = pd.to_numeric(cc["dif_conciliacion"], errors="coerce").fillna(0).abs()
+            estado &= check(
+                bool((dif <= 1.0).all()),
+                "Conciliación por cliente dentro de tolerancia $1",
+                f"Hay clientes con desvío de conciliación > $1 (máx={dif.max():,.2f})",
+            )
+
     if comp is None or comp.empty:
         print("  WARN Sin composición de saldos procesada (cc_composicion).")
     else:

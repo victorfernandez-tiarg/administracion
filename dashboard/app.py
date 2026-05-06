@@ -1068,6 +1068,10 @@ with t3:
         deuda_critica = df_saldos[df_saldos["aging"]=="+90 días"]["saldo_vencido"].sum()
         n_deudores    = len(df_saldos)
         mayor         = df_saldos["saldo_actual"].max()
+        desvio_abs_total = pd.to_numeric(df_saldos.get("dif_conciliacion", 0), errors="coerce").fillna(0).abs().sum()
+        no_conciliados = 0
+        if "conciliado" in df_saldos.columns:
+            no_conciliados = int((~df_saldos["conciliado"].fillna(False)).sum())
  
         c1,c2,c3,c4 = st.columns(4)
         c1.metric("Deuda total",      fmt_m(deuda_total))
@@ -1078,6 +1082,9 @@ with t3:
         c4.metric("Mayor saldo",       fmt_m(mayor))
 
         st.caption(f"Deuda crítica +90 días: {fmt_m(deuda_critica)}")
+        st.caption(
+            f"Conciliación contable · No conciliados: {no_conciliados} · Desvío acumulado: {fmt_m(desvio_abs_total)}"
+        )
 
         kpis_fin = calcular_kpis_financieros(df, df_saldos)
         kf1, kf2, kf3, kf4 = st.columns(4)
@@ -1229,6 +1236,39 @@ with t3:
             )
             fig_centros.update_layout(showlegend=False, margin=dict(t=5, b=5, l=10), height=360)
             st.plotly_chart(fig_centros, use_container_width=True)
+
+        if "dif_conciliacion" in df_saldos.columns:
+            st.markdown("#### Control de conciliación de saldos")
+            conciliacion_df = df_saldos[[
+                "Cliente", "saldo_inicial", "debe_total", "haber_total",
+                "saldo_reconstruido", "saldo_actual", "dif_conciliacion", "conciliado"
+            ]].copy()
+            conciliacion_df["dif_abs"] = pd.to_numeric(
+                conciliacion_df["dif_conciliacion"], errors="coerce"
+            ).fillna(0).abs()
+            conciliacion_df = conciliacion_df.sort_values("dif_abs", ascending=False)
+
+            desfasados = conciliacion_df[conciliacion_df["dif_abs"] > 1].copy()
+            if desfasados.empty:
+                st.success("Saldos conciliados: saldo_final = saldo_inicial + debe - haber (tolerancia $1).")
+            else:
+                st.warning(f"Se detectaron {len(desfasados)} clientes con desvío de conciliación mayor a $1.")
+                st.dataframe(
+                    desfasados[[
+                        "Cliente", "saldo_inicial", "debe_total", "haber_total",
+                        "saldo_reconstruido", "saldo_actual", "dif_conciliacion"
+                    ]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "saldo_inicial": st.column_config.NumberColumn("Saldo inicial", format="$ %,.0f"),
+                        "debe_total": st.column_config.NumberColumn("Debe", format="$ %,.0f"),
+                        "haber_total": st.column_config.NumberColumn("Haber", format="$ %,.0f"),
+                        "saldo_reconstruido": st.column_config.NumberColumn("Saldo reconstruido", format="$ %,.0f"),
+                        "saldo_actual": st.column_config.NumberColumn("Saldo final", format="$ %,.0f"),
+                        "dif_conciliacion": st.column_config.NumberColumn("Desvío", format="$ %,.2f"),
+                    },
+                )
  
         # Ratio de cobranza
         st.markdown("#### Ratio de cobranza por cliente")
