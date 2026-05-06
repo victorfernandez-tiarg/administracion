@@ -247,7 +247,18 @@ THEME_CSS = f"""
         box-shadow: var(--shadow-soft);
     }}
 
-    .stTabs [data-baseweb="tab-list"] {{
+    div[data-testid="stTabs"] {{
+        position: sticky;
+        top: 3.25rem;
+        z-index: 80;
+    }}
+
+    div[data-testid="stTabs"] > div {{
+        overflow: visible !important;
+    }}
+
+    .stTabs [data-baseweb="tab-list"],
+    .stTabs [role="tablist"] {{
         gap: 0.35rem;
         background: rgba(255,255,255,0.55);
         padding: 0.35rem;
@@ -255,7 +266,7 @@ THEME_CSS = f"""
         border: 1px solid rgba(219, 228, 240, 0.9);
         position: sticky;
         top: 3.25rem;
-        z-index: 80;
+        z-index: 81;
         backdrop-filter: blur(8px);
     }}
 
