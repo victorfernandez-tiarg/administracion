@@ -253,6 +253,10 @@ THEME_CSS = f"""
         padding: 0.35rem;
         border-radius: 999px;
         border: 1px solid rgba(219, 228, 240, 0.9);
+        position: sticky;
+        top: 3.25rem;
+        z-index: 80;
+        backdrop-filter: blur(8px);
     }}
 
     .stTabs [data-baseweb="tab"] {{
@@ -407,6 +411,14 @@ def _dataset_desactualizado(raw_paths, processed_paths):
 def auto_actualizar_desde_archivos_locales():
     tareas = []
 
+    raw_cc_candidates = [
+        RAW_DIR / "cc_clientes.xlsx",
+        RAW_DIR / "composicion_saldos.xlsx",
+        RAW_DIR / "composicion_de_saldos.xlsx",
+        RAW_DIR / "cc_composicion.xlsx",
+    ]
+    raw_cc_candidates.extend(sorted(RAW_DIR.glob("Reporte*.xlsx")))
+
     if _dataset_desactualizado(
         [RAW_DIR / "datos_facturacion.xlsx"],
         [
@@ -420,12 +432,14 @@ def auto_actualizar_desde_archivos_locales():
         tareas.append(("facturación", lambda: correr_etl(sync_drive=False)))
 
     if _dataset_desactualizado(
-        [RAW_DIR / "cc_clientes.xlsx"],
+        raw_cc_candidates,
         [
             PROCESSED_DIR / "cc_movimientos.parquet",
             PROCESSED_DIR / "cc_movimientos.csv",
             PROCESSED_DIR / "cc_saldos.parquet",
             PROCESSED_DIR / "cc_saldos.csv",
+            PROCESSED_DIR / "cc_composicion.parquet",
+            PROCESSED_DIR / "cc_composicion.csv",
         ],
     ):
         tareas.append(("cuentas corrientes", lambda: correr_etl_cc(sync_drive=False)))
@@ -447,6 +461,8 @@ def auto_actualizar_desde_archivos_locales():
 
 
 datasets_actualizados = auto_actualizar_desde_archivos_locales()
+if datasets_actualizados:
+    st.cache_data.clear()
 auto_sync_drive = os.getenv("AUTO_SYNC_DRIVE", "true").strip().lower() in {"1", "true", "yes", "si"}
  
 # ── Cargar datos (antes del sidebar para calcular rango) ──
