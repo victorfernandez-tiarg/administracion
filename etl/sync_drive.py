@@ -122,6 +122,11 @@ def sincronizar():
             continue
         print(f"  → Intenta descargar {file_name} (ID: {file_id[:20]}...)")
         resultados[file_name] = descargar_archivo(file_id, file_name)
+
+    print("Resumen sincronización:")
+    for file_name, ok in resultados.items():
+        estado = "OK" if ok else "FALLÓ"
+        print(f"  - {file_name}: {estado}")
     
     print("─" * 50)
     return resultados

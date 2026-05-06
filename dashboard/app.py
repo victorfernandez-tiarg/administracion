@@ -156,7 +156,7 @@ THEME_CSS = f"""
     }}
 
     .block-container {{
-        padding-top: 1.35rem;
+        padding-top: 5.6rem;
         padding-bottom: 2.2rem;
     }}
 
@@ -248,13 +248,21 @@ THEME_CSS = f"""
     }}
 
     div[data-testid="stTabs"] {{
-        position: sticky;
-        top: 3.25rem;
-        z-index: 80;
+        position: relative;
+        z-index: 10;
     }}
 
     div[data-testid="stTabs"] > div {{
         overflow: visible !important;
+    }}
+
+    div[data-testid="stTabs"]:first-of-type {{
+        position: fixed;
+        top: 0.35rem;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(1120px, calc(100vw - 4rem));
+        z-index: 999;
     }}
 
     .stTabs [data-baseweb="tab-list"],
@@ -264,8 +272,7 @@ THEME_CSS = f"""
         padding: 0.35rem;
         border-radius: 999px;
         border: 1px solid rgba(219, 228, 240, 0.9);
-        position: sticky;
-        top: 3.25rem;
+        position: relative;
         z-index: 81;
         backdrop-filter: blur(8px);
     }}
@@ -537,11 +544,17 @@ with st.sidebar:
     if st.button("⬇️ Sincronizar Drive"):
         with st.spinner("Descargando desde Drive y reprocesando..."):
             try:
-                sincronizar()
+                resultados_sync = sincronizar()
                 facturas = correr_etl(sync_drive=False)
                 _, saldos = correr_etl_cc(sync_drive=False)
                 if facturas is None or saldos is None:
                     raise RuntimeError("Falló el ETL luego de sincronizar Drive.")
+                ok_comp = resultados_sync.get("composicion_saldos.xlsx", False) if isinstance(resultados_sync, dict) else False
+                if not ok_comp:
+                    st.warning(
+                        "Sincronización parcial: no se pudo descargar composicion_saldos.xlsx. "
+                        "Revisá GOOGLE_DRIVE_COMPOSICION_FILE_ID y permisos del archivo para el service account."
+                    )
                 st.cache_data.clear()
                 st.rerun()
             except Exception as e:
