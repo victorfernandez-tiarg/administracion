@@ -557,6 +557,18 @@ with st.sidebar:
     st.caption("Si reemplazás los Excel en data/raw, el dashboard reprocesa automáticamente en el próximo reload.")
     if auto_sync_drive:
         st.caption("AUTO_SYNC_DRIVE=true está activo. El ETL de terminal todavía puede sincronizar Drive si lo necesitás.")
+
+    if sin_comp:
+        comp_raw = RAW_DIR / "composicion_saldos.xlsx"
+        comp_env = os.getenv("GOOGLE_DRIVE_COMPOSICION_FILE_ID", "")
+        if comp_raw.exists():
+            st.warning("Composición detectada en data/raw, pero todavía no está procesada. Ejecutá '🔄 Ctas. Ctes.'")
+        elif comp_env:
+            st.warning("GOOGLE_DRIVE_COMPOSICION_FILE_ID está configurada, pero no se descargó composición. Revisá permisos del archivo en Drive.")
+        else:
+            st.caption("Composición no activa: faltan archivo local y variable GOOGLE_DRIVE_COMPOSICION_FILE_ID.")
+    else:
+        st.caption("Composición de saldos activa ✅")
  
     meta = load_meta()
     if "ultima_actualizacion" in meta:

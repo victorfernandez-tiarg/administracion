@@ -98,15 +98,26 @@ def sincronizar():
     print("Sincronizando archivos desde Google Drive...")
     
     file_ids = {
-        "datos_facturacion.xlsx": os.getenv("GOOGLE_DRIVE_FACTURACION_FILE_ID", ""),
-        "cc_clientes.xlsx": os.getenv("GOOGLE_DRIVE_CC_FILE_ID", ""),
-        "composicion_saldos.xlsx": os.getenv("GOOGLE_DRIVE_COMPOSICION_FILE_ID", ""),
+        "datos_facturacion.xlsx": {
+            "env": "GOOGLE_DRIVE_FACTURACION_FILE_ID",
+            "id": os.getenv("GOOGLE_DRIVE_FACTURACION_FILE_ID", ""),
+        },
+        "cc_clientes.xlsx": {
+            "env": "GOOGLE_DRIVE_CC_FILE_ID",
+            "id": os.getenv("GOOGLE_DRIVE_CC_FILE_ID", ""),
+        },
+        "composicion_saldos.xlsx": {
+            "env": "GOOGLE_DRIVE_COMPOSICION_FILE_ID",
+            "id": os.getenv("GOOGLE_DRIVE_COMPOSICION_FILE_ID", ""),
+        },
     }
     
     resultados = {}
-    for file_name, file_id in file_ids.items():
+    for file_name, conf in file_ids.items():
+        file_id = conf["id"]
+        env_name = conf["env"]
         if not file_id:
-            print(f"  ⊘ Saltando {file_name}: ID no configurado (env={file_name.replace('.xlsx', '').upper()}_FILE_ID)")
+            print(f"  ⊘ Saltando {file_name}: ID no configurado (env={env_name})")
             resultados[file_name] = False
             continue
         print(f"  → Intenta descargar {file_name} (ID: {file_id[:20]}...)")
