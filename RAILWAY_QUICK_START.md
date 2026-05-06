@@ -30,7 +30,7 @@ python -c "import json; data=json.load(open('ruta/al/archivo.json')); print(json
 2. Loggearse con GitHub
 3. Seleccionar proyecto: **finnegans_bi**
 4. Click en "Variables" (o "Environment Variables")
-5. Agregar 4 variables:
+5. Agregar variables:
 
 #### Variable 1: GOOGLE_SERVICE_ACCOUNT_JSON
 - **Name**: `GOOGLE_SERVICE_ACCOUNT_JSON`
@@ -52,6 +52,16 @@ python -c "import json; data=json.load(open('ruta/al/archivo.json')); print(json
 - **Value**: `true`
 - Click "Save"
 
+#### Variable 5: GOOGLE_DRIVE_COMPOSICION_FILE_ID
+- **Name**: `GOOGLE_DRIVE_COMPOSICION_FILE_ID`
+- **Value**: ID real del archivo de composición en Drive
+- Click "Save"
+
+#### Variable 6: AUTO_SYNC_DRIVE
+- **Name**: `AUTO_SYNC_DRIVE`
+- **Value**: `true`
+- Click "Save"
+
 ### Resultado esperado:
 - Railway redeplegará automáticamente
 - En la sección "Deployments", verás una nueva compilación en progreso
@@ -68,6 +78,7 @@ python -c "import json; data=json.load(open('ruta/al/archivo.json')); print(json
    "Sincronizando archivos desde Google Drive..."
    "✓ datos_facturacion.xlsx sincronizado"
    "✓ cc_clientes.xlsx sincronizado"
+   "✓ composicion_saldos.xlsx sincronizado"
    ```
    - Si ves esto → ✅ Sincronización funciona
 
@@ -90,6 +101,11 @@ python -c "import json; data=json.load(open('ruta/al/archivo.json')); print(json
 3. **Botón "🔄 Ctas. Ctes."**:
    - Click → procesa CC de Drive
    - Verificar Tab "Cuentas Corrientes" con datos nuevos
+
+4. **Validación composición**:
+   - En Tab "Cuentas corrientes" buscar leyenda:
+   - `Fuente de vencimiento activa: composicion`
+   - Debe aparecer gráfico "Deuda por centro de costo (composición)"
 
 ---
 

@@ -100,6 +100,7 @@ def sincronizar():
     file_ids = {
         "datos_facturacion.xlsx": os.getenv("GOOGLE_DRIVE_FACTURACION_FILE_ID", ""),
         "cc_clientes.xlsx": os.getenv("GOOGLE_DRIVE_CC_FILE_ID", ""),
+        "composicion_saldos.xlsx": os.getenv("GOOGLE_DRIVE_COMPOSICION_FILE_ID", ""),
     }
     
     resultados = {}

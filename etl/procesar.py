@@ -16,10 +16,10 @@ Uso:
 """
 
 import pandas as pd
+import os
 from pathlib import Path
 from datetime import date
 import json
-from etl.sync_drive import sincronizar
 
 RAW_DIR       = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
@@ -39,6 +39,19 @@ MAPA_EMPRESA = {
     "TIARG S.A.": "Local",
     "TIARG LLC":  "Internacional",
 }
+
+
+def _drive_sync_habilitado(sync_drive) -> bool:
+    if sync_drive is not None:
+        return bool(sync_drive)
+    return os.getenv("AUTO_SYNC_DRIVE", "true").strip().lower() in {"1", "true", "yes", "si"}
+
+
+def _sincronizar_si_corresponde(sync_drive):
+    if not _drive_sync_habilitado(sync_drive):
+        return
+    from etl.sync_drive import sincronizar
+    sincronizar()
 
 
 def procesar_facturas() -> pd.DataFrame:
@@ -137,14 +150,14 @@ def guardar(df: pd.DataFrame, nombre: str):
     print(f"  ✓ {nombre}.parquet guardado ({len(df)} filas)")
 
 
-def correr_etl(sync_drive: bool = True):
+def correr_etl(sync_drive: bool | None = None):
     print("─" * 40)
     print("Corriendo ETL Finnegans BI...")
     
     # Sincronizar archivos desde Google Drive
-    if sync_drive:
+    if _drive_sync_habilitado(sync_drive):
         try:
-            sincronizar()
+            _sincronizar_si_corresponde(sync_drive)
         except Exception as e:
             print(f"  ⚠ Sincronización con Drive fallida (continuando con archivos locales): {e}")
     
