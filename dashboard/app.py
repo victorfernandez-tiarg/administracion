@@ -20,7 +20,7 @@ from datetime import date
 #streamlit run dashboard/app.py 
 sys.path.append(str(Path(__file__).parent.parent))
 from etl.procesar    import correr_etl
-from etl.procesar_cc import correr_etl_cc
+from etl.procesar_cc import correr_etl_cc, calcular_aging
 from etl.sync_drive  import sincronizar
 from dashboard.asistente import (
     generar_contexto, consultar_ollama,
