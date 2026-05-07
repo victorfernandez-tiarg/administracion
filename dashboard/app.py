@@ -13,6 +13,7 @@ from pathlib import Path
 import os
 import io
 import json, sys
+import unicodedata
 from datetime import date
  
 #streamlit run dashboard/app.py 
@@ -374,7 +375,9 @@ def load_meta():
 
 
 def _normalizar_columna(nombre: str) -> str:
-    return "".join(ch.lower() for ch in str(nombre).strip() if ch.isalnum())
+    base = unicodedata.normalize("NFKD", str(nombre).strip())
+    base = "".join(ch for ch in base if not unicodedata.combining(ch))
+    return "".join(ch.lower() for ch in base if ch.isalnum())
 
 
 def _validar_excel_bytes(archivo_bytes: bytes, columnas_requeridas: list[str]) -> tuple[bool, str]:
@@ -393,26 +396,41 @@ def _validar_excel_bytes(archivo_bytes: bytes, columnas_requeridas: list[str]) -
 
 
 def _validar_composicion_bytes(archivo_bytes: bytes) -> tuple[bool, str]:
-    candidatos_cliente = {"cliente", "razonsocial", "razon_social"}
-    candidatos_saldo = {"saldoabierto", "saldo", "importependiente", "pendiente", "deuda"}
+    tokens_cliente = ("cliente", "razonsocial", "razon", "social")
+    tokens_saldo = ("saldoabierto", "saldo", "importependiente", "pendiente", "deuda", "importe")
 
     try:
         xls = pd.ExcelFile(io.BytesIO(archivo_bytes))
     except Exception as e:
         return False, f"No se pudo leer Excel: {e}"
 
+    ejemplos_cols = []
     for sheet in xls.sheet_names:
-        try:
-            df_cols = pd.read_excel(io.BytesIO(archivo_bytes), sheet_name=sheet, nrows=0)
-        except Exception:
-            continue
-        cols_norm = {_normalizar_columna(c) for c in df_cols.columns.astype(str).tolist()}
-        tiene_cliente = any(c in cols_norm for c in candidatos_cliente)
-        tiene_saldo = any(c in cols_norm for c in candidatos_saldo)
-        if tiene_cliente and tiene_saldo:
-            return True, "OK"
+        for header_row in range(0, 6):
+            try:
+                df_cols = pd.read_excel(
+                    io.BytesIO(archivo_bytes),
+                    sheet_name=sheet,
+                    header=header_row,
+                    nrows=0,
+                )
+            except Exception:
+                continue
 
-    return False, "No se detectaron columnas de cliente y saldo en ninguna hoja"
+            cols = [str(c) for c in df_cols.columns.astype(str).tolist() if str(c).strip()]
+            if not cols:
+                continue
+            cols_norm = [_normalizar_columna(c) for c in cols]
+            if not ejemplos_cols:
+                ejemplos_cols = cols[:8]
+
+            tiene_cliente = any(any(tok in c for tok in tokens_cliente) for c in cols_norm)
+            tiene_saldo = any(any(tok in c for tok in tokens_saldo) for c in cols_norm)
+            if tiene_cliente and tiene_saldo:
+                return True, "OK"
+
+    detalle = f" Columnas detectadas (ejemplo): {', '.join(ejemplos_cols)}" if ejemplos_cols else ""
+    return False, "No se detectaron columnas de cliente y saldo en ninguna hoja." + detalle
 
 
 def _guardar_adjunto_en_raw(uploaded_file, destino: Path) -> int:
