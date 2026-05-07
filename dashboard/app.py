@@ -712,96 +712,62 @@ with st.sidebar:
     st.markdown("**Navegación**")
     if "tab_nav" not in st.session_state:
         st.session_state["tab_nav"] = "Facturación"
-    
-    # CSS personalizado para estilizar los botones de navegación
+
     nav_css = """
     <style>
-    .nav-row-wrapper {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 16px;
-    }
-    
-    .nav-row-wrapper > div {
-        flex: 1;
-    }
-    
-    .nav-row-wrapper .stButton > button {
+    .nav-vertical .stButton > button {
         width: 100% !important;
-        background-color: transparent !important;
-        color: #888 !important;
-        border: none !important;
         border-radius: 6px !important;
-        padding: 10px 14px !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-        transition: all 0.25s ease !important;
-        box-shadow: none !important;
-        height: 38px !important;
-    }
-    
-    .nav-row-wrapper .stButton > button:hover {
-        background-color: rgba(63, 126, 255, 0.12) !important;
-        color: #aaa !important;
-    }
-    
-    .nav-row-wrapper .stButton > button:active {
-        transform: scale(0.98) !important;
-    }
-    
-    /* Estilo para botón activo */
-    [data-nav-active="true"] .stButton > button {
-        background-color: #3f7eff !important;
-        color: white !important;
+        min-height: 42px !important;
+        padding: 0.45rem 0.75rem !important;
+        font-size: 0.95rem !important;
         font-weight: 600 !important;
-        box-shadow: 0 2px 8px rgba(63, 126, 255, 0.3) !important;
+        text-align: left !important;
+        transition: all 0.18s ease !important;
     }
-    
-    [data-nav-active="true"] .stButton > button:hover {
-        background-color: #3f7eff !important;
-        color: white !important;
+
+    .nav-vertical .stButton > button[kind="secondary"] {
+        background: rgba(255, 255, 255, 0.02) !important;
+        color: #d2d8e4 !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        box-shadow: none !important;
+    }
+
+    .nav-vertical .stButton > button[kind="secondary"]:hover {
+        background: rgba(63, 126, 255, 0.12) !important;
+        border-color: rgba(63, 126, 255, 0.42) !important;
+        color: #eef3ff !important;
+    }
+
+    .nav-vertical .stButton > button[kind="primary"] {
+        background: #2d7ff9 !important;
+        color: #ffffff !important;
+        border: 1px solid #2d7ff9 !important;
+        box-shadow: 0 6px 18px rgba(45, 127, 249, 0.26) !important;
+    }
+
+    .nav-vertical .stButton > button[kind="primary"]:hover {
+        background: #2372ea !important;
+        border-color: #2372ea !important;
     }
     </style>
     """
     st.markdown(nav_css, unsafe_allow_html=True)
-    
-    # Crear botones de navegación en fila
-    current_tab = st.session_state.get("tab_nav", "Facturación")
-    
-    st.markdown('<div class="nav-row-wrapper">', unsafe_allow_html=True)
-    col_nav1, col_nav2, col_nav3 = st.columns(3)
-    
-    with col_nav1:
-        if st.button("Facturación", key="nav_btn_fact", use_container_width=True):
-            st.session_state["tab_nav"] = "Facturación"
-            st.rerun()
-    
-    with col_nav2:
-        if st.button("CC", key="nav_btn_cc", use_container_width=True):
-            st.session_state["tab_nav"] = "CC"
-            st.rerun()
-    
-    with col_nav3:
-        if st.button("Clientes", key="nav_btn_cli", use_container_width=True):
-            st.session_state["tab_nav"] = "Clientes"
-            st.rerun()
-    
+
+    opciones_nav = ["Facturación", "CC", "Clientes"]
+    st.markdown('<div class="nav-vertical">', unsafe_allow_html=True)
+    for opcion in opciones_nav:
+        es_activa = st.session_state.get("tab_nav") == opcion
+        if st.button(
+            opcion,
+            key=f"nav_btn_{opcion}",
+            use_container_width=True,
+            type="primary" if es_activa else "secondary",
+        ):
+            if st.session_state.get("tab_nav") != opcion:
+                st.session_state["tab_nav"] = opcion
+                st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # JavaScript para aplicar estilo activo
-    st.markdown(f"""
-    <script>
-    function updateNavStyle() {{
-        const currentTab = "{current_tab}";
-        const buttons = document.querySelectorAll('.nav-row-wrapper button');
-        buttons.forEach(btn => {{
-            btn.parentElement.parentElement.setAttribute('data-nav-active', 
-                btn.innerText.trim() === currentTab ? 'true' : 'false');
-        }});
-    }}
-    updateNavStyle();
-    </script>
-    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -1471,68 +1437,55 @@ if st.session_state["tab_nav"] == "CC":
             cliente_sel = top10_tabla.iloc[idx_sel]["Cliente"]
             
             with st.expander(f"Comprobantes adeudados · {cliente_sel}", expanded=True):
-                # Intentar usar composición de saldos primero (menos ruido), luego facturación
                 if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
-                    comprobantes_cli = df_cc_comp[df_cc_comp["Cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()].copy()
-                    
+                    comprobantes_cli = df_cc_comp[
+                        df_cc_comp["Cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()
+                    ].copy()
+
+                    comprobantes_cli["saldo_abierto"] = pd.to_numeric(
+                        comprobantes_cli.get("saldo_abierto", 0), errors="coerce"
+                    ).fillna(0)
+                    comprobantes_cli = comprobantes_cli[comprobantes_cli["saldo_abierto"] > 0].copy()
+
+                    if "Documento_ref" in comprobantes_cli.columns:
+                        tipo_doc = comprobantes_cli["Documento_ref"].astype(str).str.upper()
+                        mask_docs = (
+                            tipo_doc.str.contains("FAC", na=False)
+                            | tipo_doc.str.contains("FACT", na=False)
+                            | tipo_doc.str.contains("ND", na=False)
+                            | tipo_doc.str.contains("DEBIT", na=False)
+                        )
+                        if mask_docs.any():
+                            comprobantes_cli = comprobantes_cli[mask_docs].copy()
+
                     if comprobantes_cli.empty:
                         st.success(f"Sin comprobantes adeudados para {cliente_sel}.")
                     else:
-                        # Usar columnas disponibles en composición con nombres limpios
-                        cols_comp = [c for c in ["Comprobante", "Saldo", "Vencimiento", "Prioridad"] 
-                                     if c in comprobantes_cli.columns]
-                        
-                        comp_tabla = comprobantes_cli[cols_comp].copy()
-                        
-                        # Formatear montos como moneda si están en la tabla
-                        if "Saldo" in comp_tabla.columns:
-                            comp_tabla["Saldo"] = pd.to_numeric(comp_tabla["Saldo"], errors="coerce").fillna(0).map(lambda v: f"$ {v:,.0f}")
-                        
+                        comp_tabla = pd.DataFrame()
+                        if "Documento_ref" in comprobantes_cli.columns:
+                            comp_tabla["Comprobante"] = comprobantes_cli["Documento_ref"].astype(str)
+                        else:
+                            comp_tabla["Comprobante"] = pd.Series([""] * len(comprobantes_cli), index=comprobantes_cli.index)
+                        comp_tabla["Saldo"] = comprobantes_cli["saldo_abierto"].map(lambda v: f"$ {v:,.0f}")
+                        if "venc_comp" in comprobantes_cli.columns:
+                            comp_tabla["Vencimiento"] = pd.to_datetime(
+                                comprobantes_cli["venc_comp"], errors="coerce"
+                            ).dt.strftime("%d/%m/%Y")
+                        if "dias_vencido_item" in comprobantes_cli.columns:
+                            dias = pd.to_numeric(comprobantes_cli["dias_vencido_item"], errors="coerce").fillna(0)
+                            comp_tabla["Prioridad"] = np.where(
+                                dias > 90,
+                                "Alta",
+                                np.where(dias > 30, "Media", "Baja"),
+                            )
+
                         st.dataframe(
                             comp_tabla,
                             use_container_width=True,
                             hide_index=True,
                         )
-                elif not sin_fact and not df.empty:
-                    # Fallback a facturación si no hay composición
-                    comprobantes_cli = df[df["cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()].copy()
-                    if "importe_pendiente" in comprobantes_cli.columns:
-                        comprobantes_pend = comprobantes_cli[
-                            pd.to_numeric(comprobantes_cli["importe_pendiente"], errors="coerce").fillna(0) > 0
-                        ].copy()
-                    else:
-                        comprobantes_pend = comprobantes_cli.copy()
-                    
-                    if comprobantes_pend.empty:
-                        st.success(f"Sin comprobantes adeudados para {cliente_sel}.")
-                    else:
-                        cols_comp = ["fecha", "tipo_documento", "numero_comprobante", "descripcion", 
-                                     "monto_neto_ars", "monto_total_ars", "importe_pendiente", "condicion_pago"]
-                        cols_comp = [c for c in cols_comp if c in comprobantes_pend.columns]
-                        
-                        comp_tabla = comprobantes_pend[cols_comp].copy()
-                        for col_num in ["monto_neto_ars", "monto_total_ars", "importe_pendiente"]:
-                            if col_num in comp_tabla.columns:
-                                comp_tabla[col_num] = pd.to_numeric(comp_tabla[col_num], errors="coerce").fillna(0).map(lambda v: f"$ {v:,.0f}")
-                        
-                        comp_tabla = comp_tabla.rename(columns={
-                            "fecha": "Fecha",
-                            "tipo_documento": "Tipo",
-                            "numero_comprobante": "Comprobante",
-                            "descripcion": "Descripción",
-                            "monto_neto_ars": "Neto",
-                            "monto_total_ars": "Total",
-                            "importe_pendiente": "Pendiente",
-                            "condicion_pago": "Condición",
-                        })
-                        
-                        st.dataframe(
-                            comp_tabla.sort_values("Fecha", ascending=False) if "Fecha" in comp_tabla.columns else comp_tabla,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
                 else:
-                    st.info("Sin datos de composición o facturación para mostrar comprobantes.")
+                    st.info("Sin datos de composición para mostrar comprobantes adeudados.")
 
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
