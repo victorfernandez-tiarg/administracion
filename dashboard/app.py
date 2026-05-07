@@ -28,8 +28,9 @@ from etl.sync_drive  import sincronizar
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 ASSETS_DIR = Path(__file__).parent / "assets"
+UI_STATE_PATH = PROCESSED_DIR / "ui_state.json"
  
-st.set_page_config(page_title="Finnegans BI", layout="wide")
+st.set_page_config(page_title="tiarg", page_icon=str(ASSETS_DIR / "logo_empresa.png"), layout="wide")
  
 # ── Paleta ─────────────────────────────────────────
 C_LOCAL  = "#0ea5e9"
@@ -330,6 +331,30 @@ THEME_CSS = f"""
         background: linear-gradient(90deg, rgba(148,163,184,0), rgba(148,163,184,0.45), rgba(148,163,184,0));
         margin: 1.1rem 0 1.35rem 0;
     }}
+
+    @media (max-width: 900px) {{
+        .block-container {{
+            padding-top: 5.1rem;
+            padding-left: 0.7rem;
+            padding-right: 0.7rem;
+        }}
+
+        .mobile-stack div[data-testid="stHorizontalBlock"] {{
+            flex-direction: column !important;
+            gap: 0.6rem !important;
+        }}
+
+        .mobile-stack div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+            width: 100% !important;
+            min-width: 100% !important;
+            flex: 1 1 100% !important;
+        }}
+
+        .stTabs [data-baseweb="tab"] {{
+            padding: 0.4rem 0.75rem;
+            font-size: 0.9rem;
+        }}
+    }}
 </style>
 """
 
@@ -376,6 +401,44 @@ def fmt_m(v, moneda="ARS"):
     if moneda == "USD":
         return f"USD {v:,.0f}"
     return f"$ {v:,.0f}"
+
+
+def abrir_bloque_mobile_stack():
+    st.markdown('<div class="mobile-stack">', unsafe_allow_html=True)
+
+
+def cerrar_bloque_mobile_stack():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def cargar_estado_ui_global():
+    if not UI_STATE_PATH.exists():
+        return {}
+    try:
+        with open(UI_STATE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def guardar_estado_ui_global(estado):
+    try:
+        UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(UI_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(estado, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # Si no se puede persistir estado, la app debe seguir funcionando.
+        pass
+
+
+def parsear_fecha_iso(valor):
+    if not valor or not isinstance(valor, str):
+        return None
+    try:
+        return date.fromisoformat(valor)
+    except Exception:
+        return None
  
 @st.cache_data(show_spinner=False)
 def load_meta():
@@ -806,18 +869,28 @@ with st.sidebar:
 # ── Período global — justo debajo del navbar ────
 st.markdown("### Período global")
 
+estado_ui_global = cargar_estado_ui_global()
+
 # Inicializar session_state con valores válidos dentro del rango disponible
 fecha_desde_default = max(fecha_min_default, date(fecha_max_default.year, 1, 1))
 fecha_hasta_default = fecha_max_default
 
+fecha_desde_persistida = parsear_fecha_iso(estado_ui_global.get("fecha_desde"))
+fecha_hasta_persistida = parsear_fecha_iso(estado_ui_global.get("fecha_hasta"))
+
+if fecha_desde_persistida is not None:
+    fecha_desde_persistida = min(max(fecha_desde_persistida, fecha_min_default), fecha_max_default)
+if fecha_hasta_persistida is not None:
+    fecha_hasta_persistida = min(max(fecha_hasta_persistida, fecha_min_default), fecha_max_default)
+
 if "fecha_desde" not in st.session_state or not isinstance(st.session_state["fecha_desde"], date):
-    st.session_state["fecha_desde"] = fecha_desde_default
+    st.session_state["fecha_desde"] = fecha_desde_persistida or fecha_desde_default
 else:
     # Asegurar que el valor está dentro del rango disponible
     st.session_state["fecha_desde"] = min(max(st.session_state["fecha_desde"], fecha_min_default), fecha_max_default)
 
 if "fecha_hasta" not in st.session_state or not isinstance(st.session_state["fecha_hasta"], date):
-    st.session_state["fecha_hasta"] = fecha_hasta_default
+    st.session_state["fecha_hasta"] = fecha_hasta_persistida or fecha_hasta_default
 else:
     # Asegurar que el valor está dentro del rango disponible
     st.session_state["fecha_hasta"] = min(max(st.session_state["fecha_hasta"], fecha_min_default), fecha_max_default)
@@ -844,6 +917,34 @@ if fecha_desde > fecha_hasta:
     fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
 
 st.markdown("### Filtros globales")
+
+if "modo_filtro_clientes" not in st.session_state:
+    modo_cli_persistido = estado_ui_global.get("modo_filtro_clientes", "Incluir seleccionados")
+    st.session_state["modo_filtro_clientes"] = (
+        modo_cli_persistido if modo_cli_persistido in ["Incluir seleccionados", "Excluir seleccionados"] else "Incluir seleccionados"
+    )
+
+if "modo_filtro_centros" not in st.session_state:
+    modo_ctr_persistido = estado_ui_global.get("modo_filtro_centros", "Incluir seleccionados")
+    st.session_state["modo_filtro_centros"] = (
+        modo_ctr_persistido if modo_ctr_persistido in ["Incluir seleccionados", "Excluir seleccionados"] else "Incluir seleccionados"
+    )
+
+if "filtro_global_clientes" not in st.session_state:
+    clientes_persistidos = estado_ui_global.get("filtro_global_clientes", [])
+    if not isinstance(clientes_persistidos, list):
+        clientes_persistidos = []
+    clientes_validos = set(clientes_opts)
+    st.session_state["filtro_global_clientes"] = [c for c in clientes_persistidos if c in clientes_validos]
+
+if "filtro_global_centros" not in st.session_state:
+    centros_persistidos = estado_ui_global.get("filtro_global_centros", [])
+    if not isinstance(centros_persistidos, list):
+        centros_persistidos = []
+    centros_validos = set(centros_opts)
+    st.session_state["filtro_global_centros"] = [c for c in centros_persistidos if c in centros_validos]
+
+abrir_bloque_mobile_stack()
 f1, f2 = st.columns(2)
 
 with f1:
@@ -863,6 +964,7 @@ with f2:
         key="modo_filtro_centros",
     )
     centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+cerrar_bloque_mobile_stack()
 
 if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
     centros_set_main = set([c.strip() for c in centros_sel])
@@ -879,6 +981,17 @@ if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "
         .tolist()
     )
     st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
+
+estado_ui_actual = {
+    "fecha_desde": fecha_desde.isoformat(),
+    "fecha_hasta": fecha_hasta.isoformat(),
+    "modo_filtro_clientes": modo_clientes,
+    "filtro_global_clientes": clientes_sel,
+    "modo_filtro_centros": modo_centros,
+    "filtro_global_centros": centros_sel,
+}
+if estado_ui_actual != estado_ui_global:
+    guardar_estado_ui_global(estado_ui_actual)
 
 st.markdown("---")
  
@@ -1062,6 +1175,7 @@ with t2:
         c3.metric("Consolidado USD (Imp. usd)", fmt_m(total_usd_t2, "USD"))
  
         st.markdown("---")
+        abrir_bloque_mobile_stack()
         col_a, col_b = st.columns(2)
  
         with col_a:
@@ -1090,6 +1204,7 @@ with t2:
                               labels={"mes_nombre":"","monto_total_ars":"USD"})
                 fig2.update_layout(showlegend=False, margin=dict(t=5,b=5))
                 st.plotly_chart(fig2, use_container_width=True)
+            cerrar_bloque_mobile_stack()
  
         # Por línea de negocio — segmentado por empresa
         st.markdown("#### Por línea de negocio — barras apiladas")
@@ -1142,6 +1257,7 @@ with t2:
                   else df_ars[df_ars["linea_negocio"] == linea_sync] \
                        if "linea_negocio" in df_ars.columns else df_ars
  
+        abrir_bloque_mobile_stack()
         col_e, col_f = st.columns(2)
         with col_e:
             st.markdown(f"#### Top 10 clientes ARS{' · ' + linea_sync if linea_sync != 'Todas' else ''}")
@@ -1163,6 +1279,7 @@ with t2:
                                color="linea_plot", color_discrete_map=COLORES_LINEA, hole=0.4)
                 fig5.update_layout(margin=dict(t=5,b=5))
                 st.plotly_chart(fig5, use_container_width=True)
+            cerrar_bloque_mobile_stack()
  
  
 # ══════════════════════════════════════════════
@@ -1183,14 +1300,17 @@ with t3:
         deuda_vencida = df_cc_view[col_vencida_cc].sum()
         deuda_critica = df_cc_view[df_cc_view[col_aging_cc] == "+90 días"][col_vencida_cc].sum()
 
+        abrir_bloque_mobile_stack()
         c1, c2 = st.columns(2)
         c1.metric("Deuda total",      fmt_m(deuda_total))
         c2.metric("Deuda vencida",    fmt_m(deuda_vencida),
                   delta=f"{deuda_critica/deuda_vencida*100:.0f}% en +90" if deuda_vencida else None,
                   delta_color="inverse")
+        cerrar_bloque_mobile_stack()
 
         st.markdown("---")
 
+        abrir_bloque_mobile_stack()
         col_a, col_b = st.columns(2)
  
         with col_a:
@@ -1211,6 +1331,7 @@ with t3:
                            labels={col_deuda_cc:"ARS","Cliente":""}, text_auto=".2s")
             fig7.update_layout(showlegend=True, margin=dict(t=5,b=5,l=10))
             st.plotly_chart(fig7, use_container_width=True)
+        cerrar_bloque_mobile_stack()
 
         st.markdown("#### Tabla de deudores")
         top10_tabla = top10.rename(columns={
@@ -1221,11 +1342,17 @@ with t3:
         }).copy()
         top10_tabla["Saldo"] = pd.to_numeric(top10_tabla["Saldo"], errors="coerce").fillna(0)
         top10_tabla["Vencido"] = pd.to_numeric(top10_tabla["Vencido"], errors="coerce").fillna(0)
-        top10_tabla["Días vencido"] = pd.to_numeric(top10_tabla["Días vencido"], errors="coerce").fillna(0)
-        top10_tabla["Saldo"] = top10_tabla["Saldo"].map(lambda v: f"$ {v:,.0f}")
-        top10_tabla["Vencido"] = top10_tabla["Vencido"].map(lambda v: f"$ {v:,.0f}")
-        top10_tabla["Días vencido"] = top10_tabla["Días vencido"].map(lambda v: f"{int(v)}")
-        st.table(top10_tabla)
+        top10_tabla["Días vencido"] = pd.to_numeric(top10_tabla["Días vencido"], errors="coerce").fillna(0).astype(int)
+        st.dataframe(
+            top10_tabla,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Saldo": st.column_config.NumberColumn("Saldo", format="$ %d"),
+                "Vencido": st.column_config.NumberColumn("Vencido", format="$ %d"),
+                "Días vencido": st.column_config.NumberColumn("Días vencido", format="%d"),
+            },
+        )
 
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
@@ -1275,16 +1402,26 @@ with t4:
         st.markdown("#### Tabla resumen")
         cols_tabla = ["Cliente","Facturado ARS","Deuda ARS","saldo_vencido","ratio_cobranza","aging","dias_vencido"]
         cols_tabla = [c for c in cols_tabla if c in cruce.columns]
+        cruce_tabla = cruce[cols_tabla].rename(columns={
+            "saldo_vencido":"Saldo vencido","ratio_cobranza":"% Cobrado",
+            "aging":"Estado","dias_vencido":"Días vencido"
+        }).copy()
+        for col_num in ["Facturado ARS", "Deuda ARS", "Saldo vencido", "% Cobrado", "Días vencido"]:
+            if col_num in cruce_tabla.columns:
+                cruce_tabla[col_num] = pd.to_numeric(cruce_tabla[col_num], errors="coerce").fillna(0)
+        if "Facturado ARS" in cruce_tabla.columns:
+            cruce_tabla["Facturado ARS"] = cruce_tabla["Facturado ARS"].map(lambda v: f"$ {v:,.0f}")
+        if "Deuda ARS" in cruce_tabla.columns:
+            cruce_tabla["Deuda ARS"] = cruce_tabla["Deuda ARS"].map(lambda v: f"$ {v:,.0f}")
+        if "Saldo vencido" in cruce_tabla.columns:
+            cruce_tabla["Saldo vencido"] = cruce_tabla["Saldo vencido"].map(lambda v: f"$ {v:,.0f}")
+        if "% Cobrado" in cruce_tabla.columns:
+            cruce_tabla["% Cobrado"] = cruce_tabla["% Cobrado"].map(lambda v: f"{v:.0f}%")
+        if "Días vencido" in cruce_tabla.columns:
+            cruce_tabla["Días vencido"] = cruce_tabla["Días vencido"].map(lambda v: f"{int(v)}")
+
         st.dataframe(
-            cruce[cols_tabla].rename(columns={
-                "saldo_vencido":"Saldo vencido","ratio_cobranza":"% Cobrado",
-                "aging":"Estado","dias_vencido":"Días vencido"
-            }),
-            use_container_width=True, hide_index=True,
-            column_config={
-                "Facturado ARS": st.column_config.NumberColumn(format="$ %,.0f"),
-                "Deuda ARS":     st.column_config.NumberColumn(format="$ %,.0f"),
-                "Saldo vencido": st.column_config.NumberColumn(format="$ %,.0f"),
-                "% Cobrado":     st.column_config.ProgressColumn(min_value=0,max_value=100,format="%.0f%%"),
-            }
+            cruce_tabla,
+            use_container_width=True,
+            hide_index=True,
         )
