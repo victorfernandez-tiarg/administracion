@@ -15,7 +15,7 @@ import os
 import io
 import json, sys
 import unicodedata
-from datetime import date
+from datetime import date, datetime
  
 #streamlit run dashboard/app.py 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -709,6 +709,39 @@ with st.sidebar:
  
     st.markdown("---")
 
+    st.markdown("**Navegación**")
+    if "tab_nav" not in st.session_state:
+        st.session_state["tab_nav"] = "Facturación"
+    
+    tab_seleccionada = st.radio(
+        "nav",
+        ["Facturación", "CC", "Clientes"],
+        index=["Facturación", "CC", "Clientes"].index(st.session_state.get("tab_nav", "Facturación")),
+        label_visibility="collapsed"
+    )
+    st.session_state["tab_nav"] = tab_seleccionada
+
+    st.markdown("---")
+
+    st.markdown("**Última actualización**")
+    meta = load_meta()
+    if meta and "ultima_actualizacion" in meta:
+        try:
+            dt_str = meta["ultima_actualizacion"]
+            dt_obj = datetime.fromisoformat(dt_str)
+            fecha_fmt = dt_obj.strftime("%d/%m/%Y")
+            hora_fmt = dt_obj.strftime("%H:%M:%S")
+            st.caption(f"📅 {fecha_fmt}")
+            st.caption(f"🕐 {hora_fmt}")
+            if "filas" in meta:
+                st.caption(f"📊 {meta['filas']:,} registros")
+        except Exception:
+            st.caption("Información no disponible")
+    else:
+        st.caption("Sin actualización registrada")
+
+    st.markdown("---")
+
     st.markdown("**Carga de archivos**")
     if "adjuntos_status" in st.session_state:
         st.success(st.session_state.pop("adjuntos_status"))
@@ -1148,18 +1181,13 @@ col_dias_max_cc = "dias_vencido_max_base" if (not sin_cc and "dias_vencido_max_b
 col_aging_cc = "aging_base" if (not sin_cc and "aging_base" in df_saldos.columns) else "aging"
 
 # ═══════════════════════════════════════════════════
-# NAVBAR (arriba del contenido)
+# NAVEGACIÓN POR SECCIONES (controlada desde sidebar)
 # ═══════════════════════════════════════════════════
-t2, t3, t4 = st.tabs([
-    "Facturación",
-    "CC",
-    "Clientes",
-])
  
 # ══════════════════════════════════════════════
-# TAB 2 — FACTURACIÓN
+# SECCIÓN 1 — FACTURACIÓN
 # ══════════════════════════════════════════════
-with t2:
+if st.session_state["tab_nav"] == "Facturación":
     if sin_fact or df.empty:
         st.info("Sin datos. Colocá datos_facturacion.xlsx en data/raw/ y actualizá.")
     else:
@@ -1283,9 +1311,9 @@ with t2:
  
  
 # ══════════════════════════════════════════════
-# TAB 3 — CUENTAS CORRIENTES
+# SECCIÓN 2 — CUENTAS CORRIENTES
 # ══════════════════════════════════════════════
-with t3:
+if st.session_state["tab_nav"] == "CC":
     if sin_cc:
         st.info("Sin datos de CC. Colocá cc_clientes.xlsx en data/raw/ y actualizá.")
     else:
@@ -1343,10 +1371,12 @@ with t3:
         top10_tabla["Saldo"] = pd.to_numeric(top10_tabla["Saldo"], errors="coerce").fillna(0)
         top10_tabla["Vencido"] = pd.to_numeric(top10_tabla["Vencido"], errors="coerce").fillna(0)
         top10_tabla["Días vencido"] = pd.to_numeric(top10_tabla["Días vencido"], errors="coerce").fillna(0).astype(int)
-        st.dataframe(
+        evento_top10 = st.dataframe(
             top10_tabla,
             use_container_width=True,
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
             column_config={
                 "Saldo": st.column_config.NumberColumn("Saldo", format="$ %d"),
                 "Vencido": st.column_config.NumberColumn("Vencido", format="$ %d"),
@@ -1354,14 +1384,59 @@ with t3:
             },
         )
 
+        if evento_top10.selection["rows"]:
+            idx_sel = evento_top10.selection["rows"][0]
+            cliente_sel = top10_tabla.iloc[idx_sel]["Cliente"]
+            
+            with st.expander(f"Comprobantes adeudados · {cliente_sel}", expanded=True):
+                if not sin_fact and not df.empty:
+                    comprobantes_cli = df[df["cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()].copy()
+                    if "importe_pendiente" in comprobantes_cli.columns:
+                        comprobantes_pend = comprobantes_cli[
+                            pd.to_numeric(comprobantes_cli["importe_pendiente"], errors="coerce").fillna(0) > 0
+                        ].copy()
+                    else:
+                        comprobantes_pend = comprobantes_cli.copy()
+                    
+                    if comprobantes_pend.empty:
+                        st.success(f"Sin comprobantes adeudados para {cliente_sel}.")
+                    else:
+                        cols_comp = ["fecha", "tipo_documento", "numero_comprobante", "descripcion", 
+                                     "monto_neto_ars", "monto_total_ars", "importe_pendiente", "condicion_pago"]
+                        cols_comp = [c for c in cols_comp if c in comprobantes_pend.columns]
+                        
+                        comp_tabla = comprobantes_pend[cols_comp].copy()
+                        for col_num in ["monto_neto_ars", "monto_total_ars", "importe_pendiente"]:
+                            if col_num in comp_tabla.columns:
+                                comp_tabla[col_num] = pd.to_numeric(comp_tabla[col_num], errors="coerce").fillna(0).map(lambda v: f"$ {v:,.0f}")
+                        
+                        comp_tabla = comp_tabla.rename(columns={
+                            "fecha": "Fecha",
+                            "tipo_documento": "Tipo",
+                            "numero_comprobante": "Comprobante",
+                            "descripcion": "Descripción",
+                            "monto_neto_ars": "Neto",
+                            "monto_total_ars": "Total",
+                            "importe_pendiente": "Pendiente",
+                            "condicion_pago": "Condición",
+                        })
+                        
+                        st.dataframe(
+                            comp_tabla.sort_values("Fecha", ascending=False) if "Fecha" in comp_tabla.columns else comp_tabla,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                else:
+                    st.info("Sin datos de facturación para mostrar comprobantes.")
+
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
  
  
 # ══════════════════════════════════════════════
-# TAB 4 — CLIENTES (cruce facturación + CC)
+# SECCIÓN 3 — CLIENTES (cruce facturación + CC)
 # ══════════════════════════════════════════════
-with t4:
+if st.session_state["tab_nav"] == "Clientes":
     st.markdown("#### Vista cruzada: Facturación vs. Deuda por cliente")
  
     if df_ars.empty and sin_cc:

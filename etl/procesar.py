@@ -18,7 +18,7 @@ Uso:
 import pandas as pd
 import os
 from pathlib import Path
-from datetime import date
+from datetime import datetime
 import json
 import warnings
 
@@ -174,7 +174,7 @@ def correr_etl(sync_drive: bool | None = None):
         guardar(facturas, "facturas")
         resumen = calcular_resumen_clientes(facturas)
         guardar(resumen, "resumen_clientes")
-        meta = {"ultima_actualizacion": str(date.today()), "filas": len(facturas)}
+        meta = {"ultima_actualizacion": datetime.now().isoformat(), "filas": len(facturas)}
         with open(PROCESSED_DIR / "meta.json", "w") as f:
             json.dump(meta, f)
         print(f"ETL finalizado. {len(facturas)} registros procesados.")
