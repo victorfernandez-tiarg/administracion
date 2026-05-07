@@ -801,40 +801,6 @@ with st.sidebar:
     st.markdown("**Empresa**")
     empresa = st.radio("emp", ["Todas", "Local (TIARG S.A.)", "Internacional (TIARG LLC)"],
                        label_visibility="collapsed")
-
-    st.markdown("---")
-    st.markdown("**Filtros Globales**")
-    modo_clientes = st.radio(
-        "Modo clientes",
-        ["Incluir seleccionados", "Excluir seleccionados"],
-        horizontal=True,
-        key="modo_filtro_clientes",
-    )
-    clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
-
-    modo_centros = st.radio(
-        "Modo centros",
-        ["Incluir seleccionados", "Excluir seleccionados"],
-        horizontal=True,
-        key="modo_filtro_centros",
-    )
-    centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
-
-    if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
-        centros_set_sidebar = set([c.strip() for c in centros_sel])
-        mask_rel = df_fact_raw["linea_negocio"].astype(str).str.strip().isin(centros_set_sidebar)
-        if modo_centros == "Excluir seleccionados":
-            mask_rel = ~mask_rel
-        clientes_rel = (
-            df_fact_raw.loc[mask_rel, "cliente"]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .str.title()
-            .unique()
-            .tolist()
-        )
-        st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
  
     st.markdown("---")
  
@@ -844,7 +810,7 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════
 t2, t3, t4 = st.tabs([
     "Facturación",
-    "Cuentas corrientes",
+    "CC",
     "Clientes",
 ])
 
@@ -887,6 +853,45 @@ with pc2:
 if fecha_desde > fecha_hasta:
     st.warning("Fecha desde > hasta, se invirtieron.")
     fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
+
+st.markdown("### Filtros globales")
+f1, f2 = st.columns(2)
+
+with f1:
+    modo_clientes = st.radio(
+        "Modo clientes",
+        ["Incluir seleccionados", "Excluir seleccionados"],
+        horizontal=True,
+        key="modo_filtro_clientes",
+    )
+    clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
+
+with f2:
+    modo_centros = st.radio(
+        "Modo centros",
+        ["Incluir seleccionados", "Excluir seleccionados"],
+        horizontal=True,
+        key="modo_filtro_centros",
+    )
+    centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+
+if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
+    centros_set_main = set([c.strip() for c in centros_sel])
+    mask_rel = df_fact_raw["linea_negocio"].astype(str).str.strip().isin(centros_set_main)
+    if modo_centros == "Excluir seleccionados":
+        mask_rel = ~mask_rel
+    clientes_rel = (
+        df_fact_raw.loc[mask_rel, "cliente"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .str.title()
+        .unique()
+        .tolist()
+    )
+    st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
+
+st.markdown("---")
  
 if not sin_fact:
     df = df_fact_raw.copy()
@@ -1179,16 +1184,12 @@ with t3:
         deuda_total   = df_cc_view[col_deuda_cc].sum()
         deuda_vencida = df_cc_view[col_vencida_cc].sum()
         deuda_critica = df_cc_view[df_cc_view[col_aging_cc] == "+90 días"][col_vencida_cc].sum()
-        n_deudores    = len(df_cc_view)
-        mayor         = df_cc_view[col_deuda_cc].max()
 
-        c1,c2,c3,c4 = st.columns(4)
+        c1, c2 = st.columns(2)
         c1.metric("Deuda total",      fmt_m(deuda_total))
         c2.metric("Deuda vencida",    fmt_m(deuda_vencida),
                   delta=f"{deuda_critica/deuda_vencida*100:.0f}% en +90" if deuda_vencida else None,
                   delta_color="inverse")
-        c3.metric("Clientes deudores", str(n_deudores))
-        c4.metric("Mayor saldo",       fmt_m(mayor))
 
         st.markdown("---")
 
