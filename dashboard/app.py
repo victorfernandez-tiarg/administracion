@@ -1,4 +1,4 @@
-
+﻿
 """
 Finnegans BI — Dashboard Híbrido
 Facturación + Cuentas Corrientes reales de Finnegans GO
@@ -713,13 +713,95 @@ with st.sidebar:
     if "tab_nav" not in st.session_state:
         st.session_state["tab_nav"] = "Facturación"
     
-    tab_seleccionada = st.radio(
-        "nav",
-        ["Facturación", "CC", "Clientes"],
-        index=["Facturación", "CC", "Clientes"].index(st.session_state.get("tab_nav", "Facturación")),
-        label_visibility="collapsed"
-    )
-    st.session_state["tab_nav"] = tab_seleccionada
+    # CSS personalizado para estilizar los botones de navegación
+    nav_css = """
+    <style>
+    .nav-row-wrapper {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    
+    .nav-row-wrapper > div {
+        flex: 1;
+    }
+    
+    .nav-row-wrapper .stButton > button {
+        width: 100% !important;
+        background-color: transparent !important;
+        color: #888 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        transition: all 0.25s ease !important;
+        box-shadow: none !important;
+        height: 38px !important;
+    }
+    
+    .nav-row-wrapper .stButton > button:hover {
+        background-color: rgba(63, 126, 255, 0.12) !important;
+        color: #aaa !important;
+    }
+    
+    .nav-row-wrapper .stButton > button:active {
+        transform: scale(0.98) !important;
+    }
+    
+    /* Estilo para botón activo */
+    [data-nav-active="true"] .stButton > button {
+        background-color: #3f7eff !important;
+        color: white !important;
+        font-weight: 600 !important;
+        box-shadow: 0 2px 8px rgba(63, 126, 255, 0.3) !important;
+    }
+    
+    [data-nav-active="true"] .stButton > button:hover {
+        background-color: #3f7eff !important;
+        color: white !important;
+    }
+    </style>
+    """
+    st.markdown(nav_css, unsafe_allow_html=True)
+    
+    # Crear botones de navegación en fila
+    current_tab = st.session_state.get("tab_nav", "Facturación")
+    
+    st.markdown('<div class="nav-row-wrapper">', unsafe_allow_html=True)
+    col_nav1, col_nav2, col_nav3 = st.columns(3)
+    
+    with col_nav1:
+        if st.button("Facturación", key="nav_btn_fact", use_container_width=True):
+            st.session_state["tab_nav"] = "Facturación"
+            st.rerun()
+    
+    with col_nav2:
+        if st.button("CC", key="nav_btn_cc", use_container_width=True):
+            st.session_state["tab_nav"] = "CC"
+            st.rerun()
+    
+    with col_nav3:
+        if st.button("Clientes", key="nav_btn_cli", use_container_width=True):
+            st.session_state["tab_nav"] = "Clientes"
+            st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # JavaScript para aplicar estilo activo
+    st.markdown(f"""
+    <script>
+    function updateNavStyle() {{
+        const currentTab = "{current_tab}";
+        const buttons = document.querySelectorAll('.nav-row-wrapper button');
+        buttons.forEach(btn => {{
+            btn.parentElement.parentElement.setAttribute('data-nav-active', 
+                btn.innerText.trim() === currentTab ? 'true' : 'false');
+        }});
+    }}
+    updateNavStyle();
+    </script>
+    """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -1389,7 +1471,30 @@ if st.session_state["tab_nav"] == "CC":
             cliente_sel = top10_tabla.iloc[idx_sel]["Cliente"]
             
             with st.expander(f"Comprobantes adeudados · {cliente_sel}", expanded=True):
-                if not sin_fact and not df.empty:
+                # Intentar usar composición de saldos primero (menos ruido), luego facturación
+                if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
+                    comprobantes_cli = df_cc_comp[df_cc_comp["Cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()].copy()
+                    
+                    if comprobantes_cli.empty:
+                        st.success(f"Sin comprobantes adeudados para {cliente_sel}.")
+                    else:
+                        # Usar columnas disponibles en composición con nombres limpios
+                        cols_comp = [c for c in ["Comprobante", "Saldo", "Vencimiento", "Prioridad"] 
+                                     if c in comprobantes_cli.columns]
+                        
+                        comp_tabla = comprobantes_cli[cols_comp].copy()
+                        
+                        # Formatear montos como moneda si están en la tabla
+                        if "Saldo" in comp_tabla.columns:
+                            comp_tabla["Saldo"] = pd.to_numeric(comp_tabla["Saldo"], errors="coerce").fillna(0).map(lambda v: f"$ {v:,.0f}")
+                        
+                        st.dataframe(
+                            comp_tabla,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                elif not sin_fact and not df.empty:
+                    # Fallback a facturación si no hay composición
                     comprobantes_cli = df[df["cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()].copy()
                     if "importe_pendiente" in comprobantes_cli.columns:
                         comprobantes_pend = comprobantes_cli[
@@ -1427,7 +1532,7 @@ if st.session_state["tab_nav"] == "CC":
                             hide_index=True,
                         )
                 else:
-                    st.info("Sin datos de facturación para mostrar comprobantes.")
+                    st.info("Sin datos de composición o facturación para mostrar comprobantes.")
 
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
