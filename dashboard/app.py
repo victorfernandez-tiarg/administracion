@@ -156,6 +156,23 @@ THEME_CSS = f"""
         border: 1px solid rgba(255,255,255,0.10);
     }}
 
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {{
+        background: rgba(15, 23, 42, 0.55);
+        border: 1px dashed rgba(148, 163, 184, 0.55);
+        border-radius: 12px;
+    }}
+
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] * {{
+        color: #e5eef8 !important;
+    }}
+
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] small,
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] span,
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] small,
+    [data-testid="stSidebar"] [data-testid="stFileUploader"] span {{
+        color: #cbd5e1 !important;
+    }}
+
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
         background: linear-gradient(90deg, rgba(14,165,233,0.24) 0%, rgba(56,189,248,0.18) 100%);
         border-color: rgba(56,189,248,0.24);
@@ -440,6 +457,22 @@ def _guardar_adjunto_en_raw(uploaded_file, destino: Path) -> int:
     return len(contenido)
 
 
+def _archivo_composicion_raw() -> Path | None:
+    candidatos = [
+        RAW_DIR / "composicion_saldos.xlsx",
+        RAW_DIR / "composicion_de_saldos.xlsx",
+        RAW_DIR / "cc_composicion.xlsx",
+    ]
+    for p in candidatos:
+        if p.exists():
+            return p
+    for patron in ("*composicion*.xlsx", "*composición*.xlsx", "Reporte*.xlsx", "*saldos*.xlsx"):
+        for p in sorted(RAW_DIR.glob(patron)):
+            if p.name.lower() != "cc_clientes.xlsx":
+                return p
+    return None
+
+
 def calcular_kpis_financieros(df_fact: pd.DataFrame, df_cc: pd.DataFrame) -> dict:
     kpis = {
         "dso": 0.0,
@@ -625,6 +658,12 @@ with st.sidebar:
     if "adjuntos_status" in st.session_state:
         st.success(st.session_state.pop("adjuntos_status"))
 
+    comp_raw_actual = _archivo_composicion_raw()
+    if comp_raw_actual is None:
+        st.caption("Composición raw: no detectada")
+    else:
+        st.caption(f"Composición raw detectada: {comp_raw_actual.name}")
+
     up_fact = st.file_uploader(
         "Facturación",
         type=["xlsx"],
@@ -649,6 +688,7 @@ with st.sidebar:
             st.warning("Adjuntá al menos un archivo para procesar.")
         else:
             errores = []
+            advertencias = []
             guardados = []
 
             if up_fact is not None:
@@ -675,11 +715,13 @@ with st.sidebar:
 
             if up_comp is not None:
                 ok, msg = _validar_composicion_bytes(up_comp.getvalue())
+                _guardar_adjunto_en_raw(up_comp, RAW_DIR / "composicion_saldos.xlsx")
+                guardados.append("Composición")
                 if not ok:
-                    errores.append(f"Composición: {msg}")
-                else:
-                    _guardar_adjunto_en_raw(up_comp, RAW_DIR / "composicion_saldos.xlsx")
-                    guardados.append("Composición")
+                    advertencias.append(
+                        "Composición: validación flexible no concluyente; se guardó igual y se intentó procesar con ETL. "
+                        + msg
+                    )
 
             if errores:
                 st.error("No se pudo procesar por validaciones:\n- " + "\n- ".join(errores))
@@ -687,6 +729,9 @@ with st.sidebar:
                 with st.spinner("Validado. Procesando archivos adjuntos..."):
                     facturas = correr_etl(sync_drive=False)
                     _, saldos = correr_etl_cc(sync_drive=False)
+
+                if advertencias:
+                    st.warning("\n".join(advertencias))
 
                 if facturas is None or saldos is None:
                     st.error("El ETL falló luego de cargar adjuntos. Revisá formato y logs.")
@@ -766,7 +811,20 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("**Filtros Globales**")
+    modo_clientes = st.radio(
+        "Modo clientes",
+        ["Incluir seleccionados", "Excluir seleccionados"],
+        horizontal=True,
+        key="modo_filtro_clientes",
+    )
     clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
+
+    modo_centros = st.radio(
+        "Modo centros",
+        ["Incluir seleccionados", "Excluir seleccionados"],
+        horizontal=True,
+        key="modo_filtro_centros",
+    )
     centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
  
     st.markdown("---")
@@ -872,35 +930,55 @@ if not sin_cc and empresa != "Todas":
 
 if not sin_fact and clientes_sel:
     clientes_set = set([c.strip().title() for c in clientes_sel])
-    df = df[df["cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
-    df_sa = df_sa[df_sa["cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
-    df_llc = df_llc[df_llc["cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
-    df_ars = df_ars[df_ars["cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
-    df_usd = df_usd[df_usd["cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
+    incluir_clientes = modo_clientes == "Incluir seleccionados"
+    mask_df = df["cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+    mask_df_sa = df_sa["cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+    mask_df_llc = df_llc["cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+    mask_df_ars = df_ars["cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+    mask_df_usd = df_usd["cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+
+    df = df[mask_df if incluir_clientes else ~mask_df]
+    df_sa = df_sa[mask_df_sa if incluir_clientes else ~mask_df_sa]
+    df_llc = df_llc[mask_df_llc if incluir_clientes else ~mask_df_llc]
+    df_ars = df_ars[mask_df_ars if incluir_clientes else ~mask_df_ars]
+    df_usd = df_usd[mask_df_usd if incluir_clientes else ~mask_df_usd]
 
 if not sin_cc and clientes_sel:
     clientes_set = set([c.strip().title() for c in clientes_sel])
-    df_saldos = df_saldos[df_saldos["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
+    incluir_clientes = modo_clientes == "Incluir seleccionados"
+    mask_cc = df_saldos["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+    df_saldos = df_saldos[mask_cc if incluir_clientes else ~mask_cc]
     if df_cc_mov is not None and "Cliente" in df_cc_mov.columns:
-        df_cc_mov = df_cc_mov[df_cc_mov["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
+        mask_mov = df_cc_mov["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+        df_cc_mov = df_cc_mov[mask_mov if incluir_clientes else ~mask_mov]
     if not sin_comp and "Cliente" in df_cc_comp.columns:
-        df_cc_comp = df_cc_comp[df_cc_comp["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)]
+        mask_comp_cli = df_cc_comp["Cliente"].astype(str).str.strip().str.title().isin(clientes_set)
+        df_cc_comp = df_cc_comp[mask_comp_cli if incluir_clientes else ~mask_comp_cli]
 
 if centros_sel:
     centros_set = set([c.strip() for c in centros_sel])
+    incluir_centros = modo_centros == "Incluir seleccionados"
     if not sin_fact and "linea_negocio" in df.columns:
-        df = df[df["linea_negocio"].astype(str).str.strip().isin(centros_set)]
-        df_sa = df_sa[df_sa["linea_negocio"].astype(str).str.strip().isin(centros_set)]
-        df_llc = df_llc[df_llc["linea_negocio"].astype(str).str.strip().isin(centros_set)]
-        df_ars = df_ars[df_ars["linea_negocio"].astype(str).str.strip().isin(centros_set)]
-        df_usd = df_usd[df_usd["linea_negocio"].astype(str).str.strip().isin(centros_set)]
+        mask_df = df["linea_negocio"].astype(str).str.strip().isin(centros_set)
+        mask_df_sa = df_sa["linea_negocio"].astype(str).str.strip().isin(centros_set)
+        mask_df_llc = df_llc["linea_negocio"].astype(str).str.strip().isin(centros_set)
+        mask_df_ars = df_ars["linea_negocio"].astype(str).str.strip().isin(centros_set)
+        mask_df_usd = df_usd["linea_negocio"].astype(str).str.strip().isin(centros_set)
+
+        df = df[mask_df if incluir_centros else ~mask_df]
+        df_sa = df_sa[mask_df_sa if incluir_centros else ~mask_df_sa]
+        df_llc = df_llc[mask_df_llc if incluir_centros else ~mask_df_llc]
+        df_ars = df_ars[mask_df_ars if incluir_centros else ~mask_df_ars]
+        df_usd = df_usd[mask_df_usd if incluir_centros else ~mask_df_usd]
 
     if not sin_comp and "centro_costo" in df_cc_comp.columns:
+        mask_comp_centro = df_cc_comp["centro_costo"].astype(str).str.strip().isin(centros_set)
+        df_cc_comp = df_cc_comp[mask_comp_centro if incluir_centros else ~mask_comp_centro]
+
         clientes_centro = set(
-            df_cc_comp[df_cc_comp["centro_costo"].astype(str).str.strip().isin(centros_set)]["Cliente"]
-            .dropna().astype(str).str.strip().str.title().tolist()
+            df_cc_comp["Cliente"].dropna().astype(str).str.strip().str.title().tolist()
         )
-        if clientes_centro and not sin_cc:
+        if not sin_cc:
             df_saldos = df_saldos[df_saldos["Cliente"].astype(str).str.strip().str.title().isin(clientes_centro)]
             if df_cc_mov is not None and "Cliente" in df_cc_mov.columns:
                 df_cc_mov = df_cc_mov[df_cc_mov["Cliente"].astype(str).str.strip().str.title().isin(clientes_centro)]
