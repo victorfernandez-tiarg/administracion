@@ -10,8 +10,15 @@ import pandas as pd
 import os
 from pathlib import Path
 from datetime import date
+import warnings
 
 from etl.procesar_composicion import cargar_composicion_saldos
+
+warnings.filterwarnings(
+    "ignore",
+    message="Workbook contains no default style, apply openpyxl's default",
+    category=UserWarning,
+)
 
 RAW_DIR       = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")

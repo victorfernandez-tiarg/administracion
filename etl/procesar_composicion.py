@@ -6,8 +6,15 @@ Separa la lectura/normalizacion de composicion para reutilizarla desde CC.
 from pathlib import Path
 import re
 import unicodedata
+import warnings
 
 import pandas as pd
+
+warnings.filterwarnings(
+    "ignore",
+    message="Workbook contains no default style, apply openpyxl's default",
+    category=UserWarning,
+)
 
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
