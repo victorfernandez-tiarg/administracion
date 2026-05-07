@@ -220,8 +220,7 @@ THEME_CSS = f"""
     [data-testid="stExpander"],
     div[data-baseweb="select"],
     div[data-baseweb="input"],
-    [data-testid="stDateInput"] > div,
-    [data-testid="stRadio"] {{
+    [data-testid="stDateInput"] > div {{
         background: rgba(255,255,255,0.62);
         border: 1px solid rgba(219, 228, 240, 0.95);
         border-radius: var(--radius-md);
@@ -766,7 +765,6 @@ with st.sidebar:
         ):
             if st.session_state.get("tab_nav") != opcion:
                 st.session_state["tab_nav"] = opcion
-                st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
