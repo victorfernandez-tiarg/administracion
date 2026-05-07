@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from pathlib import Path
 import os
+import io
 import json, sys
 from datetime import date
  
@@ -372,6 +373,55 @@ def load_meta():
     return json.load(open(p)) if p.exists() else {}
 
 
+def _normalizar_columna(nombre: str) -> str:
+    return "".join(ch.lower() for ch in str(nombre).strip() if ch.isalnum())
+
+
+def _validar_excel_bytes(archivo_bytes: bytes, columnas_requeridas: list[str]) -> tuple[bool, str]:
+    try:
+        xls = pd.ExcelFile(io.BytesIO(archivo_bytes))
+        sheet = xls.sheet_names[0]
+        df_cols = pd.read_excel(io.BytesIO(archivo_bytes), sheet_name=sheet, nrows=0)
+        cols_archivo = set(df_cols.columns.astype(str).tolist())
+    except Exception as e:
+        return False, f"No se pudo leer Excel: {e}"
+
+    faltantes = [col for col in columnas_requeridas if col not in cols_archivo]
+    if faltantes:
+        return False, "Faltan columnas requeridas: " + ", ".join(faltantes)
+    return True, "OK"
+
+
+def _validar_composicion_bytes(archivo_bytes: bytes) -> tuple[bool, str]:
+    candidatos_cliente = {"cliente", "razonsocial", "razon_social"}
+    candidatos_saldo = {"saldoabierto", "saldo", "importependiente", "pendiente", "deuda"}
+
+    try:
+        xls = pd.ExcelFile(io.BytesIO(archivo_bytes))
+    except Exception as e:
+        return False, f"No se pudo leer Excel: {e}"
+
+    for sheet in xls.sheet_names:
+        try:
+            df_cols = pd.read_excel(io.BytesIO(archivo_bytes), sheet_name=sheet, nrows=0)
+        except Exception:
+            continue
+        cols_norm = {_normalizar_columna(c) for c in df_cols.columns.astype(str).tolist()}
+        tiene_cliente = any(c in cols_norm for c in candidatos_cliente)
+        tiene_saldo = any(c in cols_norm for c in candidatos_saldo)
+        if tiene_cliente and tiene_saldo:
+            return True, "OK"
+
+    return False, "No se detectaron columnas de cliente y saldo en ninguna hoja"
+
+
+def _guardar_adjunto_en_raw(uploaded_file, destino: Path) -> int:
+    contenido = uploaded_file.getvalue()
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_bytes(contenido)
+    return len(contenido)
+
+
 def calcular_kpis_financieros(df_fact: pd.DataFrame, df_cc: pd.DataFrame) -> dict:
     kpis = {
         "dso": 0.0,
@@ -551,6 +601,89 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
  
+    st.markdown("---")
+
+    st.markdown("**Carga de archivos**")
+    if "adjuntos_status" in st.session_state:
+        st.success(st.session_state.pop("adjuntos_status"))
+
+    up_fact = st.file_uploader(
+        "Facturación",
+        type=["xlsx"],
+        key="upload_fact",
+        help="Se guarda como data/raw/datos_facturacion.xlsx",
+    )
+    up_cc = st.file_uploader(
+        "Ctas. Ctes.",
+        type=["xlsx"],
+        key="upload_cc",
+        help="Se guarda como data/raw/cc_clientes.xlsx",
+    )
+    up_comp = st.file_uploader(
+        "Composición de saldos",
+        type=["xlsx"],
+        key="upload_comp",
+        help="Se guarda como data/raw/composicion_saldos.xlsx",
+    )
+
+    if st.button("📎 Validar y procesar adjuntos", type="primary"):
+        if up_fact is None and up_cc is None and up_comp is None:
+            st.warning("Adjuntá al menos un archivo para procesar.")
+        else:
+            errores = []
+            guardados = []
+
+            if up_fact is not None:
+                ok, msg = _validar_excel_bytes(
+                    up_fact.getvalue(),
+                    ["Fecha", "Cliente", "Empresa", "Moneda", "Documento", "Importe mon. principal", "Imp. usd", "Nivel 1 dimensión"],
+                )
+                if not ok:
+                    errores.append(f"Facturación: {msg}")
+                else:
+                    _guardar_adjunto_en_raw(up_fact, RAW_DIR / "datos_facturacion.xlsx")
+                    guardados.append("Facturación")
+
+            if up_cc is not None:
+                ok, msg = _validar_excel_bytes(
+                    up_cc.getvalue(),
+                    ["Fecha", "Fecha vencimiento", "Cliente", "Documento", "Debe ppal", "Haber ppal", "Saldo ppal"],
+                )
+                if not ok:
+                    errores.append(f"Ctas. Ctes.: {msg}")
+                else:
+                    _guardar_adjunto_en_raw(up_cc, RAW_DIR / "cc_clientes.xlsx")
+                    guardados.append("Ctas. Ctes.")
+
+            if up_comp is not None:
+                ok, msg = _validar_composicion_bytes(up_comp.getvalue())
+                if not ok:
+                    errores.append(f"Composición: {msg}")
+                else:
+                    _guardar_adjunto_en_raw(up_comp, RAW_DIR / "composicion_saldos.xlsx")
+                    guardados.append("Composición")
+
+            if errores:
+                st.error("No se pudo procesar por validaciones:\n- " + "\n- ".join(errores))
+            else:
+                with st.spinner("Validado. Procesando archivos adjuntos..."):
+                    facturas = correr_etl(sync_drive=False)
+                    _, saldos = correr_etl_cc(sync_drive=False)
+
+                if facturas is None or saldos is None:
+                    st.error("El ETL falló luego de cargar adjuntos. Revisá formato y logs.")
+                else:
+                    st.cache_data.clear()
+                    comp_actualizado = load("cc_composicion")
+                    comp_procesadas = 0 if comp_actualizado is None else len(comp_actualizado)
+                    st.session_state["adjuntos_status"] = (
+                        f"Procesado desde adjuntos ({', '.join(guardados)}). "
+                        f"Registros: Facturación {len(facturas):,} · CC {len(saldos):,} · Composición {comp_procesadas:,}"
+                    )
+                    for k in ["fecha_desde", "fecha_hasta"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
+
     st.markdown("---")
 
     if st.button("⬇️ Sincronizar Drive"):
