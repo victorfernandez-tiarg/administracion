@@ -269,8 +269,12 @@ THEME_CSS = f"""
     }}
 
     div[data-testid="stTabs"] {{
-        position: relative;
-        z-index: 10;
+        position: sticky;
+        top: 0.35rem;
+        z-index: 999;
+        background: rgba(248, 250, 252, 0.82);
+        backdrop-filter: blur(8px);
+        padding-top: 0.15rem;
     }}
 
     div[data-testid="stTabs"] > div {{
@@ -278,12 +282,7 @@ THEME_CSS = f"""
     }}
 
     div[data-testid="stTabs"]:first-of-type {{
-        position: fixed;
-        top: 0.35rem;
-        left: 50%;
-        transform: translateX(-50%);
-        width: min(1120px, calc(100vw - 4rem));
-        z-index: 999;
+        width: 100%;
     }}
 
     .stTabs [data-baseweb="tab-list"],
@@ -804,16 +803,6 @@ with st.sidebar:
  
     st.markdown("---")
  
-# ── Filtrar facturación ────────────────────────────
-# ═══════════════════════════════════════════════════
-# TABS (arriba del contenido)
-# ═══════════════════════════════════════════════════
-t2, t3, t4 = st.tabs([
-    "Facturación",
-    "CC",
-    "Clientes",
-])
-
 # ── Período global — justo debajo del navbar ────
 st.markdown("### Período global")
 
@@ -1044,6 +1033,15 @@ col_por_vencer_cc = "saldo_por_vencer_base" if (not sin_cc and "saldo_por_vencer
 col_dias_cc = "dias_vencido_base" if (not sin_cc and "dias_vencido_base" in df_saldos.columns) else "dias_vencido"
 col_dias_max_cc = "dias_vencido_max_base" if (not sin_cc and "dias_vencido_max_base" in df_saldos.columns) else "dias_vencido_max"
 col_aging_cc = "aging_base" if (not sin_cc and "aging_base" in df_saldos.columns) else "aging"
+
+# ═══════════════════════════════════════════════════
+# NAVBAR (arriba del contenido)
+# ═══════════════════════════════════════════════════
+t2, t3, t4 = st.tabs([
+    "Facturación",
+    "CC",
+    "Clientes",
+])
  
 # ══════════════════════════════════════════════
 # TAB 2 — FACTURACIÓN
@@ -1215,21 +1213,19 @@ with t3:
             st.plotly_chart(fig7, use_container_width=True)
 
         st.markdown("#### Tabla de deudores")
-        st.dataframe(
-            top10.rename(columns={
-                col_deuda_cc: "Saldo",
-                col_vencida_cc: "Vencido",
-                col_dias_cc: "Días vencido",
-                col_aging_cc: "Estado",
-            }),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Saldo": st.column_config.NumberColumn(format="$ %,.0f"),
-                "Vencido": st.column_config.NumberColumn(format="$ %,.0f"),
-                "Días vencido": st.column_config.NumberColumn(format="%d días"),
-            },
-        )
+        top10_tabla = top10.rename(columns={
+            col_deuda_cc: "Saldo",
+            col_vencida_cc: "Vencido",
+            col_dias_cc: "Días vencido",
+            col_aging_cc: "Estado",
+        }).copy()
+        top10_tabla["Saldo"] = pd.to_numeric(top10_tabla["Saldo"], errors="coerce").fillna(0)
+        top10_tabla["Vencido"] = pd.to_numeric(top10_tabla["Vencido"], errors="coerce").fillna(0)
+        top10_tabla["Días vencido"] = pd.to_numeric(top10_tabla["Días vencido"], errors="coerce").fillna(0)
+        top10_tabla["Saldo"] = top10_tabla["Saldo"].map(lambda v: f"$ {v:,.0f}")
+        top10_tabla["Vencido"] = top10_tabla["Vencido"].map(lambda v: f"$ {v:,.0f}")
+        top10_tabla["Días vencido"] = top10_tabla["Días vencido"].map(lambda v: f"{int(v)}")
+        st.table(top10_tabla)
 
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
