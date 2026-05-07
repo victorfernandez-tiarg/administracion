@@ -53,15 +53,19 @@ AGING_COLOR = {
 AGING_ORDEN = ["Al día", "1–30 días", "31–60 días", "61–90 días", "+90 días"]
  
 COLORES_LINEA = {
-    "ACRONIS":         "#0f172a",
-    "SW FACTORY":      "#1d4ed8",
-    "SF Tercerizado":  "#2563eb",
-    "SOPORTE":         "#1e40af",
-    "OTROS SERVICIOS": "#334155",
-    "STAFFING":        "#0f766e",
-    "ESPECIALES":      "#3730a3",
-    "CODEWAVE":        "#0369a1",
-    "ESTRUCTURA":      "#94a3b8",
+    "ACRONIS":         "#0B132B",
+    "SW FACTORY":      "#E11D48",
+    "SF TERCERIZADO":  "#16A34A",
+    "SOPORTE":         "#D97706",
+    "OTROS SERVICIOS": "#0891B2",
+    "STAFFING":        "#7C3AED",
+    "ESPECIALES":      "#DC2626",
+    "CODEWAVE":        "#2563EB",
+    "ESTRUCTURA":      "#4B5563",
+    "RESTO":           "#111827",
+    "OTROS":           "#475569",
+    "SIN LINEA":       "#6B7280",
+    "SIN LÍNEA":       "#6B7280",
 }
  
 NOTAS_CREDITO = [
@@ -379,13 +383,20 @@ def calcular_kpis_financieros(df_fact: pd.DataFrame, df_cc: pd.DataFrame) -> dic
     if df_cc is None or df_cc.empty:
         return kpis
 
-    deuda_total = pd.to_numeric(df_cc.get("saldo_actual", 0), errors="coerce").fillna(0).sum()
+    saldo_comp = (
+        pd.to_numeric(df_cc.get("saldo_composicion", 0), errors="coerce").fillna(0)
+        if "saldo_composicion" in df_cc.columns
+        else pd.Series(0, index=df_cc.index)
+    )
+    saldo_actual = pd.to_numeric(df_cc.get("saldo_actual", 0), errors="coerce").fillna(0)
+    saldo_deuda = saldo_comp.where(saldo_comp > 0, saldo_actual)
+
+    deuda_total = saldo_deuda.sum()
     saldo_vencido = pd.to_numeric(df_cc.get("saldo_vencido", 0), errors="coerce").fillna(0).sum()
     kpis["overdue_ratio"] = (saldo_vencido / deuda_total * 100) if deuda_total > 0 else 0
 
     top5 = (
-        pd.to_numeric(df_cc.get("saldo_actual", 0), errors="coerce")
-        .fillna(0)
+        saldo_deuda
         .nlargest(5)
         .sum()
     )
@@ -747,6 +758,17 @@ if not sin_cc:
     sin_cc = df_saldos.empty
 if not sin_fact:
     sin_fact = df.empty
+
+if not sin_cc:
+    saldo_comp = (
+        pd.to_numeric(df_saldos.get("saldo_composicion", 0), errors="coerce").fillna(0)
+        if "saldo_composicion" in df_saldos.columns
+        else pd.Series(0, index=df_saldos.index)
+    )
+    saldo_actual = pd.to_numeric(df_saldos.get("saldo_actual", 0), errors="coerce").fillna(0)
+    df_saldos["saldo_deuda"] = saldo_comp.where(saldo_comp > 0, saldo_actual)
+
+col_deuda_cc = "saldo_deuda" if (not sin_cc and "saldo_deuda" in df_saldos.columns) else "saldo_actual"
  
 # ══════════════════════════════════════════════
 # TAB 1 — RESUMEN EJECUTIVO (el Steve Jobs)
@@ -760,7 +782,7 @@ with t1:
     total_sa    = df_sa["monto_total_ars"].sum()  if not df_sa.empty  else 0
     total_llc   = df_llc["monto_total_ars"].sum() if not df_llc.empty else 0
     total_usd_c = df["monto_usd"].sum()           if not df.empty     else 0
-    deuda_total = df_saldos["saldo_actual"].sum()  if not sin_cc else 0
+    deuda_total = df_saldos[col_deuda_cc].sum()  if not sin_cc else 0
     deuda_critica = df_saldos[df_saldos["aging"] == "+90 días"]["saldo_vencido"].sum() if not sin_cc else 0
  
     k1.metric("💰 Total Facturación TIARG S.A.",   fmt_m(total_sa))
@@ -825,19 +847,19 @@ with t1:
         col_d_graf, col_d_tabla = st.columns(2)
 
         with col_d_graf:
-            aging_df = (df_saldos.groupby("aging")["saldo_actual"].sum()
+            aging_df = (df_saldos.groupby("aging")[col_deuda_cc].sum()
                         .reindex(AGING_ORDEN).dropna().reset_index())
-            fig2 = px.bar(aging_df, x="saldo_actual", y="aging", orientation="h",
+            fig2 = px.bar(aging_df, x=col_deuda_cc, y="aging", orientation="h",
                           color="aging", color_discrete_map=AGING_COLOR,
-                          labels={"saldo_actual":"ARS","aging":""}, text_auto=".2s")
+                          labels={col_deuda_cc:"ARS","aging":""}, text_auto=".2s")
             fig2.update_layout(showlegend=False, margin=dict(t=5,b=5), height=260)
             st.plotly_chart(fig2, use_container_width=True)
 
         with col_d_tabla:
-            top_d = df_saldos.head(8)[["Cliente", "saldo_actual", "saldo_vencido", "aging", "dias_vencido"]].copy()
+            top_d = df_saldos.head(8)[["Cliente", col_deuda_cc, "saldo_vencido", "aging", "dias_vencido"]].copy()
             evento_top_d = st.dataframe(
                 top_d.rename(columns={
-                    "saldo_actual": "Saldo",
+                    col_deuda_cc: "Saldo",
                     "saldo_vencido": "Vencido",
                     "aging": "Estado",
                     "dias_vencido": "Días pond.",
@@ -861,12 +883,10 @@ with t1:
                 resumen_cli = df_saldos[df_saldos["Cliente"] == cliente_sel]
                 if not resumen_cli.empty:
                     st.dataframe(
-                        resumen_cli[[
-                            "Cliente", "saldo_actual", "saldo_vencido", "saldo_por_vencer",
-                            "aging", "dias_vencido", "dias_vencido_max", "ratio_cobranza"
-                        ]]
+                        resumen_cli[["Cliente", col_deuda_cc, "saldo_vencido", "saldo_por_vencer",
+                                     "aging", "dias_vencido", "dias_vencido_max", "ratio_cobranza"]]
                         .rename(columns={
-                            "saldo_actual": "Saldo actual",
+                            col_deuda_cc: "Saldo actual",
                             "saldo_vencido": "Saldo vencido",
                             "saldo_por_vencer": "Saldo por vencer",
                             "aging": "Estado",
@@ -929,8 +949,8 @@ with t1:
 
         if not sin_cc:
             top_f = top_f.merge(
-                df_saldos[["Cliente", "saldo_actual"]].rename(
-                    columns={"Cliente": "Cliente_cc", "saldo_actual": "Deuda"}
+                df_saldos[["Cliente", col_deuda_cc]].rename(
+                    columns={"Cliente": "Cliente_cc", col_deuda_cc: "Deuda"}
                 ),
                 left_on="Cliente", right_on="Cliente_cc", how="left"
             ).drop(columns="Cliente_cc", errors="ignore")
@@ -1014,12 +1034,16 @@ with t2:
         df_linea = df_sa if "S.A." in linea_emp_sel else (df_llc if "LLC" in linea_emp_sel else df)
         col_linea_monto = "monto_total_ars"
         if "linea_negocio" in df_linea.columns and not df_linea.empty:
-            evol_l = (df_linea.groupby(["mes","mes_nombre","linea_negocio"])[col_linea_monto]
+            df_linea_plot = df_linea.copy()
+            df_linea_plot["linea_plot"] = (
+                df_linea_plot["linea_negocio"].astype(str).str.strip().str.upper().replace({"": "SIN LINEA"})
+            )
+            evol_l = (df_linea_plot.groupby(["mes","mes_nombre","linea_plot"])[col_linea_monto]
                       .sum().reset_index().sort_values("mes"))
             fig3 = px.bar(evol_l, x="mes_nombre", y=col_linea_monto,
-                          color="linea_negocio", barmode="stack",
+                          color="linea_plot", barmode="stack",
                           color_discrete_map=COLORES_LINEA,
-                          labels={"mes_nombre":"","monto_total_ars":"Monto","linea_negocio":"Línea"})
+                          labels={"mes_nombre":"","monto_total_ars":"Monto","linea_plot":"Línea"})
             fig3.update_layout(margin=dict(t=5,b=5))
             st.plotly_chart(fig3, use_container_width=True)
         else:
@@ -1063,9 +1087,11 @@ with t2:
         with col_f:
             st.markdown(f"#### Distribución por línea{' · ' + linea_sync if linea_sync != 'Todas' else ''}")
             if "linea_negocio" in df_sync.columns:
-                pie_l = df_sync.groupby("linea_negocio")["monto_total_ars"].sum().reset_index()
-                fig5  = px.pie(pie_l, values="monto_total_ars", names="linea_negocio",
-                               color="linea_negocio", color_discrete_map=COLORES_LINEA, hole=0.4)
+                pie_l = df_sync.copy()
+                pie_l["linea_plot"] = pie_l["linea_negocio"].astype(str).str.strip().str.upper().replace({"": "SIN LINEA"})
+                pie_l = pie_l.groupby("linea_plot")["monto_total_ars"].sum().reset_index()
+                fig5  = px.pie(pie_l, values="monto_total_ars", names="linea_plot",
+                               color="linea_plot", color_discrete_map=COLORES_LINEA, hole=0.4)
                 fig5.update_layout(margin=dict(t=5,b=5))
                 st.plotly_chart(fig5, use_container_width=True)
  
@@ -1081,11 +1107,11 @@ with t3:
             fuentes = sorted(df_saldos["fuente_aging"].dropna().astype(str).unique().tolist())
             st.caption(f"Fuente de vencimiento activa: {', '.join(fuentes)}")
 
-        deuda_total   = df_saldos["saldo_actual"].sum()
+        deuda_total   = df_saldos[col_deuda_cc].sum()
         deuda_vencida = df_saldos["saldo_vencido"].sum()
         deuda_critica = df_saldos[df_saldos["aging"]=="+90 días"]["saldo_vencido"].sum()
         n_deudores    = len(df_saldos)
-        mayor         = df_saldos["saldo_actual"].max()
+        mayor         = df_saldos[col_deuda_cc].max()
         desvio_abs_total = pd.to_numeric(df_saldos.get("dif_conciliacion", 0), errors="coerce").fillna(0).abs().sum()
         no_conciliados = 0
         if "conciliado" in df_saldos.columns:
@@ -1122,16 +1148,14 @@ with t3:
         if criticos.empty:
             st.success("No hay clientes con deuda vencida más de 90 días.")
         else:
-            criticos_v = criticos[[
-                "Cliente","saldo_actual","saldo_vencido","dias_vencido","dias_vencido_max",
-                "total_facturado","total_cobrado","ratio_cobranza"
-            ]].copy()
-            for c in ["saldo_actual", "saldo_vencido", "total_facturado", "total_cobrado"]:
+            criticos_v = criticos[["Cliente", col_deuda_cc, "saldo_vencido", "dias_vencido", "dias_vencido_max",
+                                   "total_facturado", "total_cobrado", "ratio_cobranza"]].copy()
+            for c in [col_deuda_cc, "saldo_vencido", "total_facturado", "total_cobrado"]:
                 criticos_v[c] = pd.to_numeric(criticos_v[c], errors="coerce").fillna(0).map(lambda x: f"$ {x:,.0f}")
 
             st.dataframe(
                 criticos_v.rename(columns={
-                    "saldo_actual":"Saldo actual","saldo_vencido":"Saldo vencido",
+                    col_deuda_cc:"Saldo actual","saldo_vencido":"Saldo vencido",
                     "dias_vencido":"Días pond.","dias_vencido_max":"Máx. días",
                     "total_facturado":"Total facturado","total_cobrado":"Total cobrado",
                     "ratio_cobranza":"% Cobrado"
@@ -1186,20 +1210,20 @@ with t3:
  
         with col_a:
             st.markdown("#### Aging de deuda")
-            aging_df = (df_saldos.groupby("aging")["saldo_actual"]
+            aging_df = (df_saldos.groupby("aging")[col_deuda_cc]
                         .sum().reindex(AGING_ORDEN).dropna().reset_index())
-            fig6 = px.bar(aging_df, x="aging", y="saldo_actual",
+            fig6 = px.bar(aging_df, x="aging", y=col_deuda_cc,
                           color="aging", color_discrete_map=AGING_COLOR,
-                          labels={"aging":"","saldo_actual":"ARS"}, text_auto=".2s")
+                          labels={"aging":"", col_deuda_cc:"ARS"}, text_auto=".2s")
             fig6.update_layout(showlegend=False, margin=dict(t=5,b=5))
             st.plotly_chart(fig6, use_container_width=True)
  
         with col_b:
             st.markdown("#### Top 10 deudores")
-            top10 = df_saldos.head(10)[["Cliente","saldo_actual","saldo_vencido","dias_vencido","aging"]]
-            fig7  = px.bar(top10.sort_values("saldo_actual"), x="saldo_actual", y="Cliente",
+            top10 = df_saldos.head(10)[["Cliente", col_deuda_cc, "saldo_vencido", "dias_vencido", "aging"]]
+            fig7  = px.bar(top10.sort_values(col_deuda_cc), x=col_deuda_cc, y="Cliente",
                            orientation="h", color="aging", color_discrete_map=AGING_COLOR,
-                           labels={"saldo_actual":"ARS","Cliente":""}, text_auto=".2s")
+                           labels={col_deuda_cc:"ARS","Cliente":""}, text_auto=".2s")
             fig7.update_layout(showlegend=True, margin=dict(t=5,b=5,l=10))
             st.plotly_chart(fig7, use_container_width=True)
 
@@ -1207,7 +1231,7 @@ with t3:
         riesgo = df_saldos.copy()
         riesgo["dias_vencido"] = pd.to_numeric(riesgo.get("dias_vencido", 0), errors="coerce").fillna(0)
         riesgo["saldo_vencido"] = pd.to_numeric(riesgo.get("saldo_vencido", 0), errors="coerce").fillna(0)
-        riesgo["saldo_actual"] = pd.to_numeric(riesgo.get("saldo_actual", 0), errors="coerce").fillna(0)
+        riesgo["saldo_actual"] = pd.to_numeric(riesgo.get(col_deuda_cc, 0), errors="coerce").fillna(0)
         riesgo = riesgo[riesgo["saldo_actual"] > 0].copy()
         riesgo["segmento_riesgo"] = pd.cut(
             riesgo["dias_vencido"],
@@ -1290,7 +1314,8 @@ with t3:
  
         # Ratio de cobranza
         st.markdown("#### Ratio de cobranza por cliente")
-        ratio_df = df_saldos[["Cliente","total_facturado","total_cobrado","saldo_actual","ratio_cobranza"]].copy()
+        ratio_df = df_saldos[["Cliente","total_facturado","total_cobrado", col_deuda_cc, "ratio_cobranza"]].copy()
+        ratio_df = ratio_df.rename(columns={col_deuda_cc: "saldo_actual"})
         ratio_df["cobrado_pct"] = ratio_df["ratio_cobranza"]
         fig8 = px.bar(ratio_df.sort_values("cobrado_pct"), x="cobrado_pct", y="Cliente",
                       orientation="h", color="cobrado_pct",
@@ -1325,7 +1350,7 @@ with t4:
         # Cruzar con saldos
         if not sin_cc:
             cruce = fact_cli.merge(
-                df_saldos[["Cliente","saldo_actual","saldo_vencido","aging","dias_vencido","ratio_cobranza"]],
+                df_saldos[["Cliente", col_deuda_cc, "saldo_vencido", "aging", "dias_vencido", "ratio_cobranza"]].rename(columns={col_deuda_cc: "saldo_actual"}),
                 on="Cliente", how="outer"
             )
             for col in ["Facturado ARS", "saldo_actual", "saldo_vencido", "dias_vencido", "ratio_cobranza"]:
