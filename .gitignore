@@ -1,6 +1,7 @@
 # Secretos y credenciales
 .secrets/
 *.json
+!dashboard/permisos.json
 .env
 .env.local
 .env.*.local

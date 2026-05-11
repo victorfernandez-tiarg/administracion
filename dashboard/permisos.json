@@ -1,0 +1,9 @@
+{
+  "superusers": ["admin"],
+  "users": {
+    "usuario_ejemplo": {
+      "clientes": ["ACME S.A.", "Otra Empresa SRL"],
+      "centros": ["SOPORTE", "ACRONIS"]
+    }
+  }
+}
