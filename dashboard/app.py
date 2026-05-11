@@ -490,6 +490,48 @@ if not st.session_state.get("authenticated"):
     _login_page()
     st.stop()
 
+# ── Permisos ───────────────────────────────────────
+_PERMISOS_PATH = Path(__file__).parent / "permisos.json"
+
+def _cargar_permisos() -> dict:
+    """Lee permisos desde archivo JSON o env var PERMISSIONS_JSON."""
+    # 1) archivo local / en container
+    if _PERMISOS_PATH.exists():
+        try:
+            with open(_PERMISOS_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    # 2) variable de entorno (Railway sin volumen)
+    raw = os.getenv("PERMISSIONS_JSON", "")
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+    return {"superusers": [], "users": {}}
+
+def _guardar_permisos(perms: dict) -> bool:
+    try:
+        with open(_PERMISOS_PATH, "w", encoding="utf-8") as f:
+            json.dump(perms, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+_permisos_global   = _cargar_permisos()
+_username_actual   = st.session_state.get("username", "")
+_es_superusuario   = _username_actual in _permisos_global.get("superusers", [])
+_perms_usuario     = _permisos_global.get("users", {}).get(_username_actual, {})
+# Listas de permisos para el usuario actual (vacío = sin restricción)
+_clientes_perm     = [c.strip().title() for c in _perms_usuario.get("clientes", [])]
+_centros_perm      = [c.strip()         for c in _perms_usuario.get("centros",  [])]
+_tabs_perm         = [t.strip()         for t in _perms_usuario.get("tabs",     [])]
+
 # ── Helpers ────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def load(nombre):
@@ -790,7 +832,16 @@ if not sin_comp and "centro_costo" in df_cc_comp.columns:
 if not sin_cc and "centro_costo_principal" in df_saldos.columns:
     centros_opts.extend(df_saldos["centro_costo_principal"].dropna().astype(str).str.strip().tolist())
 centros_opts = sorted(set([c for c in centros_opts if c]))
- 
+
+# Aplicar restricciones de permisos para usuarios regulares
+if not _es_superusuario:
+    if _clientes_perm:
+        _set_cli = set(_clientes_perm)
+        clientes_opts = [c for c in clientes_opts if c.strip().title() in _set_cli]
+    if _centros_perm:
+        _set_ctr = set(_centros_perm)
+        centros_opts = [c for c in centros_opts if c.strip() in _set_ctr]
+
 # ── Sidebar ────────────────────────────────────────
 with st.sidebar:
  
@@ -869,6 +920,11 @@ with st.sidebar:
     st.markdown(nav_css, unsafe_allow_html=True)
 
     opciones_nav = ["Facturación", "CC", "Clientes"]
+    # Filtrar tabs según permisos (vacío = todas)
+    if not _es_superusuario and _tabs_perm:
+        opciones_nav = [t for t in opciones_nav if t in _tabs_perm]
+        if st.session_state.get("tab_nav") not in opciones_nav and opciones_nav:
+            st.session_state["tab_nav"] = opciones_nav[0]
     st.markdown('<div class="nav-vertical">', unsafe_allow_html=True)
     for opcion in opciones_nav:
         es_activa = st.session_state.get("tab_nav") == opcion
@@ -1057,9 +1113,90 @@ with st.sidebar:
     st.markdown("**Empresa**")
     empresa = st.radio("emp", ["Todas", "Local (TIARG S.A.)", "Internacional (TIARG LLC)"],
                        label_visibility="collapsed")
- 
+
+    # ── Panel de administración de usuarios (solo superusuarios) ──
+    if _es_superusuario:
+        st.markdown("---")
+        with st.expander("⚙ Gestión de usuarios"):
+            _perms_edit = _cargar_permisos()
+
+            st.markdown("**Superusuarios**")
+            _supers_str = st.text_input(
+                "Usuarios separados por coma",
+                value=", ".join(_perms_edit.get("superusers", [])),
+                key="admin_supers",
+            )
+
+            st.markdown("---")
+            st.markdown("**Usuarios regulares**")
+
+            _users_edit = dict(_perms_edit.get("users", {}))
+            _todos_users = list(_users_edit.keys())
+
+            # Agregar nuevo usuario
+            _nuevo = st.text_input("Nuevo usuario (nombre)", key="admin_nuevo_user").strip()
+            if st.button("Agregar usuario", key="admin_add_user"):
+                if _nuevo and _nuevo not in _users_edit:
+                    _users_edit[_nuevo] = {"clientes": [], "centros": [], "tabs": []}
+                    _perms_edit["users"] = _users_edit
+                    _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                    _guardar_permisos(_perms_edit)
+                    st.success(f"Usuario '{_nuevo}' agregado.")
+                    st.rerun()
+
+            # Editar usuarios existentes
+            for _uname, _uprefs in _users_edit.items():
+                st.markdown(f"**`{_uname}`**")
+                _cli_val = st.text_area(
+                    "Clientes (uno por línea)",
+                    value="\n".join(_uprefs.get("clientes", [])),
+                    key=f"admin_cli_{_uname}",
+                    height=80,
+                )
+                _ctr_val = st.text_area(
+                    "Centros de costo (uno por línea)",
+                    value="\n".join(_uprefs.get("centros", [])),
+                    key=f"admin_ctr_{_uname}",
+                    height=60,
+                )
+                _tabs_val = st.text_input(
+                    "Tabs (vacío = todas · ej: Facturación, CC)",
+                    value=", ".join(_uprefs.get("tabs", [])),
+                    key=f"admin_tabs_{_uname}",
+                )
+                _col_save, _col_del = st.columns(2)
+                with _col_save:
+                    if st.button("Guardar", key=f"admin_save_{_uname}", use_container_width=True):
+                        _users_edit[_uname] = {
+                            "clientes": [c.strip() for c in _cli_val.splitlines() if c.strip()],
+                            "centros":  [c.strip() for c in _ctr_val.splitlines() if c.strip()],
+                            "tabs":     [t.strip() for t in _tabs_val.split(",") if t.strip()],
+                        }
+                        _perms_edit["users"] = _users_edit
+                        _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                        if _guardar_permisos(_perms_edit):
+                            st.success("Guardado.")
+                        else:
+                            st.error("No se pudo guardar. Revisá permisos del archivo.")
+                        st.rerun()
+                with _col_del:
+                    if st.button("Eliminar", key=f"admin_del_{_uname}", use_container_width=True):
+                        _users_edit.pop(_uname, None)
+                        _perms_edit["users"] = _users_edit
+                        _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                        _guardar_permisos(_perms_edit)
+                        st.rerun()
+                st.markdown("---")
+
+            # Guardar solo la lista de superusuarios (sin tocar users)
+            if st.button("Guardar superusuarios", key="admin_save_supers"):
+                _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                if _guardar_permisos(_perms_edit):
+                    st.success("Superusuarios guardados.")
+                else:
+                    st.error("No se pudo guardar.")
+
     st.markdown("---")
- 
 # ── Período global — justo debajo del navbar ────
 st.markdown("### Período global")
 
@@ -1141,23 +1278,36 @@ if "filtro_global_centros" not in st.session_state:
 abrir_bloque_mobile_stack()
 f1, f2 = st.columns(2)
 
-with f1:
-    modo_clientes = st.radio(
-        "Modo clientes",
-        ["Incluir seleccionados", "Excluir seleccionados"],
-        horizontal=True,
-        key="modo_filtro_clientes",
-    )
-    clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
+if _es_superusuario:
+    with f1:
+        modo_clientes = st.radio(
+            "Modo clientes",
+            ["Incluir seleccionados", "Excluir seleccionados"],
+            horizontal=True,
+            key="modo_filtro_clientes",
+        )
+        clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
 
-with f2:
-    modo_centros = st.radio(
-        "Modo centros",
-        ["Incluir seleccionados", "Excluir seleccionados"],
-        horizontal=True,
-        key="modo_filtro_centros",
-    )
-    centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+    with f2:
+        modo_centros = st.radio(
+            "Modo centros",
+            ["Incluir seleccionados", "Excluir seleccionados"],
+            horizontal=True,
+            key="modo_filtro_centros",
+        )
+        centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+else:
+    # Usuario regular: vista bloqueada a sus permisos, sin controles de filtro
+    clientes_sel = clientes_opts
+    centros_sel  = centros_opts
+    modo_clientes = "Incluir seleccionados"
+    modo_centros  = "Incluir seleccionados"
+    with f1:
+        _txt_cli = ", ".join(clientes_sel) if clientes_sel else "Todos"
+        st.caption(f"**Clientes:** {_txt_cli}")
+    with f2:
+        _txt_ctr = ", ".join(centros_sel) if centros_sel else "Todos"
+        st.caption(f"**Centros:** {_txt_ctr}")
 cerrar_bloque_mobile_stack()
 
 if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
@@ -1184,7 +1334,7 @@ estado_ui_actual = {
     "modo_filtro_centros": modo_centros,
     "filtro_global_centros": centros_sel,
 }
-if estado_ui_actual != estado_ui_global:
+if _es_superusuario and estado_ui_actual != estado_ui_global:
     guardar_estado_ui_global(estado_ui_actual)
 
 st.markdown("---")
