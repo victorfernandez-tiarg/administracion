@@ -1534,76 +1534,139 @@ if st.session_state["tab_nav"] == "CC":
             if c in df_cc_view.columns:
                 df_cc_view[c] = pd.to_numeric(df_cc_view[c], errors="coerce").fillna(0)
 
+        # ── Composición de saldos (movimientos Debe/Haber) ───────────────
+        st.markdown("#### Composición de saldos")
+        if df_cc_mov is None or df_cc_mov.empty:
+            st.info("Sin datos de movimientos. Cargá cc_clientes.xlsx y actualizá.")
+        else:
+            clientes_mov = sorted(
+                df_cc_mov["Cliente"].dropna().astype(str).str.strip().str.title().unique().tolist()
+            )
+            cliente_mov_sel = st.selectbox(
+                "Cliente",
+                options=[""] + clientes_mov,
+                format_func=lambda x: "— elegí un cliente para ver el detalle —" if x == "" else x,
+                key="mov_cliente_sel",
+            )
+
+            if cliente_mov_sel:
+                mov_cli = df_cc_mov[
+                    df_cc_mov["Cliente"].astype(str).str.strip().str.title()
+                    == cliente_mov_sel.strip().title()
+                ].copy()
+
+                # Ordenar por fecha de movimiento
+                if "Fecha" in mov_cli.columns:
+                    mov_cli["Fecha"] = pd.to_datetime(mov_cli["Fecha"], errors="coerce")
+                    mov_cli = mov_cli.sort_values("Fecha")
+
+                # Construir tabla de display
+                mov_tabla = pd.DataFrame()
+                if "Fecha" in mov_cli.columns:
+                    mov_tabla["Fecha"] = mov_cli["Fecha"].dt.strftime("%d/%m/%Y")
+                if "Documento" in mov_cli.columns:
+                    mov_tabla["Documento"] = mov_cli["Documento"].astype(str)
+                if "Descripción" in mov_cli.columns:
+                    mov_tabla["Descripción"] = mov_cli["Descripción"].astype(str)
+                if "Fecha vencimiento" in mov_cli.columns:
+                    mov_tabla["Vencimiento"] = pd.to_datetime(
+                        mov_cli["Fecha vencimiento"], errors="coerce"
+                    ).dt.strftime("%d/%m/%Y")
+                if "tipo" in mov_cli.columns:
+                    mov_tabla["Tipo"] = mov_cli["tipo"].astype(str)
+                for col_orig, col_dest in [("Debe ppal", "Debe"), ("Haber ppal", "Haber"), ("Saldo ppal", "Saldo")]:
+                    if col_orig in mov_cli.columns:
+                        vals = pd.to_numeric(mov_cli[col_orig], errors="coerce").fillna(0)
+                        mov_tabla[col_dest] = vals.map(
+                            lambda v: f"$ {v:,.0f}" if v != 0 else ""
+                        )
+
+                # Resumen rápido
+                debe_total  = pd.to_numeric(mov_cli.get("Debe ppal",  pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                haber_total = pd.to_numeric(mov_cli.get("Haber ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                saldo_final = pd.to_numeric(mov_cli.get("Saldo ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).iloc[-1] if len(mov_cli) else 0
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total facturado (Debe)", f"$ {debe_total:,.0f}")
+                m2.metric("Total cobrado (Haber)",  f"$ {haber_total:,.0f}")
+                m3.metric("Saldo actual",            f"$ {saldo_final:,.0f}")
+
+                st.dataframe(mov_tabla, use_container_width=True, hide_index=True)
+            else:
+                # Sin cliente seleccionado: mostrar resumen por cliente
+                if "Cliente" in df_cc_mov.columns:
+                    debe_col  = "Debe ppal"  if "Debe ppal"  in df_cc_mov.columns else None
+                    haber_col = "Haber ppal" if "Haber ppal" in df_cc_mov.columns else None
+                    saldo_col = "Saldo ppal" if "Saldo ppal" in df_cc_mov.columns else None
+
+                    agg_dict = {}
+                    if debe_col:  agg_dict["Facturado (Debe)"]  = (debe_col,  "sum")
+                    if haber_col: agg_dict["Cobrado (Haber)"]   = (haber_col, "sum")
+
+                    if agg_dict:
+                        resumen_mov = df_cc_mov.groupby("Cliente", as_index=False).agg(**agg_dict)
+                        if debe_col and haber_col:
+                            resumen_mov["Saldo neto"] = resumen_mov["Facturado (Debe)"] - resumen_mov["Cobrado (Haber)"]
+                        resumen_mov = resumen_mov.sort_values("Facturado (Debe)" if "Facturado (Debe)" in resumen_mov.columns else resumen_mov.columns[-1], ascending=False)
+                        for col in ["Facturado (Debe)", "Cobrado (Haber)", "Saldo neto"]:
+                            if col in resumen_mov.columns:
+                                resumen_mov[col] = resumen_mov[col].map(lambda v: f"$ {v:,.0f}")
+                        st.dataframe(resumen_mov, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+
+        # ── Métricas ──────────────────────────────────────────────────────
         deuda_total   = df_cc_view[col_deuda_cc].sum()
         deuda_vencida = df_cc_view[col_vencida_cc].sum()
         deuda_critica = df_cc_view[df_cc_view[col_aging_cc] == "+90 días"][col_vencida_cc].sum()
 
         abrir_bloque_mobile_stack()
         c1, c2 = st.columns(2)
-        c1.metric("Deuda total",      fmt_m(deuda_total))
-        c2.metric("Deuda vencida",    fmt_m(deuda_vencida),
+        c1.metric("Deuda total",   fmt_m(deuda_total))
+        c2.metric("Deuda vencida", fmt_m(deuda_vencida),
                   delta=f"{deuda_critica/deuda_vencida*100:.0f}% en +90" if deuda_vencida else None,
                   delta_color="inverse")
         cerrar_bloque_mobile_stack()
 
         st.markdown("---")
 
-        abrir_bloque_mobile_stack()
-        col_a, col_b = st.columns(2)
- 
-        with col_a:
-            st.markdown("#### Aging de deuda")
-            aging_df = (df_cc_view.groupby(col_aging_cc)[col_deuda_cc]
-                        .sum().reindex(AGING_ORDEN).dropna().reset_index())
-            fig6 = px.bar(aging_df, x=col_aging_cc, y=col_deuda_cc,
-                          color=col_aging_cc, color_discrete_map=AGING_COLOR,
-                          labels={col_aging_cc:"", col_deuda_cc:"ARS"}, text_auto=".2s")
-            fig6.update_layout(showlegend=False, margin=dict(t=5,b=5))
-            st.plotly_chart(fig6, use_container_width=True)
- 
-        with col_b:
-            st.markdown("#### Top 10 deudores")
-            top10 = df_cc_view.nlargest(10, col_deuda_cc)[["Cliente", col_deuda_cc, col_vencida_cc, col_dias_cc, col_aging_cc]]
-            fig7  = px.bar(top10.sort_values(col_deuda_cc), x=col_deuda_cc, y="Cliente",
-                           orientation="h", color=col_aging_cc, color_discrete_map=AGING_COLOR,
-                           labels={col_deuda_cc:"ARS","Cliente":""}, text_auto=".2s")
-            fig7.update_layout(showlegend=True, margin=dict(t=5,b=5,l=10))
-            st.plotly_chart(fig7, use_container_width=True)
-        cerrar_bloque_mobile_stack()
-
+        # ── Tabla de deudores ─────────────────────────────────────────────
         st.markdown("#### Tabla de deudores")
+        top10 = df_cc_view.nlargest(10, col_deuda_cc)[
+            ["Cliente", col_deuda_cc, col_vencida_cc, col_dias_cc, col_aging_cc]
+        ]
         top10_tabla = top10.rename(columns={
-            col_deuda_cc: "Saldo",
+            col_deuda_cc:   "Saldo",
             col_vencida_cc: "Vencido",
-            col_dias_cc: "Días vencido",
-            col_aging_cc: "Estado",
+            col_dias_cc:    "Días vencido",
+            col_aging_cc:   "Estado",
         }).copy()
-        top10_tabla["Saldo"] = pd.to_numeric(top10_tabla["Saldo"], errors="coerce").fillna(0)
-        top10_tabla["Vencido"] = pd.to_numeric(top10_tabla["Vencido"], errors="coerce").fillna(0)
+        top10_tabla["Saldo"]        = pd.to_numeric(top10_tabla["Saldo"],        errors="coerce").fillna(0)
+        top10_tabla["Vencido"]      = pd.to_numeric(top10_tabla["Vencido"],      errors="coerce").fillna(0)
         top10_tabla["Días vencido"] = pd.to_numeric(top10_tabla["Días vencido"], errors="coerce").fillna(0).astype(int)
+        top10_tabla["Saldo_fmt"]    = top10_tabla["Saldo"].map(lambda v: f"$ {v:,.0f}")
+        top10_tabla["Vencido_fmt"]  = top10_tabla["Vencido"].map(lambda v: f"$ {v:,.0f}")
+
         evento_top10 = st.dataframe(
-            top10_tabla,
+            top10_tabla[["Cliente", "Saldo_fmt", "Vencido_fmt", "Días vencido", "Estado"]].rename(columns={
+                "Saldo_fmt": "Saldo",
+                "Vencido_fmt": "Vencido",
+            }),
             use_container_width=True,
             hide_index=True,
             on_select="rerun",
             selection_mode="single-row",
-            column_config={
-                "Saldo": st.column_config.NumberColumn("Saldo", format="$ %d"),
-                "Vencido": st.column_config.NumberColumn("Vencido", format="$ %d"),
-                "Días vencido": st.column_config.NumberColumn("Días vencido", format="%d"),
-            },
         )
 
         if evento_top10.selection["rows"]:
             idx_sel = evento_top10.selection["rows"][0]
             cliente_sel = top10_tabla.iloc[idx_sel]["Cliente"]
-            
+
             with st.expander(f"Comprobantes adeudados · {cliente_sel}", expanded=True):
                 if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
                     comprobantes_cli = df_cc_comp[
                         df_cc_comp["Cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()
                     ].copy()
-
                     comprobantes_cli["saldo_abierto"] = pd.to_numeric(
                         comprobantes_cli.get("saldo_abierto", 0), errors="coerce"
                     ).fillna(0)
@@ -1636,18 +1699,37 @@ if st.session_state["tab_nav"] == "CC":
                         if "dias_vencido_item" in comprobantes_cli.columns:
                             dias = pd.to_numeric(comprobantes_cli["dias_vencido_item"], errors="coerce").fillna(0)
                             comp_tabla["Prioridad"] = np.where(
-                                dias > 90,
-                                "Alta",
+                                dias > 90, "Alta",
                                 np.where(dias > 30, "Media", "Baja"),
                             )
-
-                        st.dataframe(
-                            comp_tabla,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
+                        st.dataframe(comp_tabla, use_container_width=True, hide_index=True)
                 else:
                     st.info("Sin datos de composición para mostrar comprobantes adeudados.")
+
+        st.markdown("---")
+
+        # ── Gráficos ──────────────────────────────────────────────────────
+        abrir_bloque_mobile_stack()
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            st.markdown("#### Aging de deuda")
+            aging_df = (df_cc_view.groupby(col_aging_cc)[col_deuda_cc]
+                        .sum().reindex(AGING_ORDEN).dropna().reset_index())
+            fig6 = px.bar(aging_df, x=col_aging_cc, y=col_deuda_cc,
+                          color=col_aging_cc, color_discrete_map=AGING_COLOR,
+                          labels={col_aging_cc: "", col_deuda_cc: "ARS"}, text_auto=".2s")
+            fig6.update_layout(showlegend=False, margin=dict(t=5, b=5))
+            st.plotly_chart(fig6, use_container_width=True)
+
+        with col_b:
+            st.markdown("#### Top 10 deudores")
+            fig7 = px.bar(top10.sort_values(col_deuda_cc), x=col_deuda_cc, y="Cliente",
+                          orientation="h", color=col_aging_cc, color_discrete_map=AGING_COLOR,
+                          labels={col_deuda_cc: "ARS", "Cliente": ""}, text_auto=".2s")
+            fig7.update_layout(showlegend=True, margin=dict(t=5, b=5, l=10))
+            st.plotly_chart(fig7, use_container_width=True)
+        cerrar_bloque_mobile_stack()
 
         csv_cc = df_saldos.to_csv(index=False).encode("utf-8")
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
