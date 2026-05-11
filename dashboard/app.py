@@ -920,6 +920,8 @@ with st.sidebar:
     st.markdown(nav_css, unsafe_allow_html=True)
 
     opciones_nav = ["Facturación", "CC", "Clientes"]
+    if _es_superusuario:
+        opciones_nav.append("Admin")
     # Filtrar tabs según permisos (vacío = todas)
     if not _es_superusuario and _tabs_perm:
         opciones_nav = [t for t in opciones_nav if t in _tabs_perm]
@@ -1113,88 +1115,6 @@ with st.sidebar:
     st.markdown("**Empresa**")
     empresa = st.radio("emp", ["Todas", "Local (TIARG S.A.)", "Internacional (TIARG LLC)"],
                        label_visibility="collapsed")
-
-    # ── Panel de administración de usuarios (solo superusuarios) ──
-    if _es_superusuario:
-        st.markdown("---")
-        with st.expander("⚙ Gestión de usuarios"):
-            _perms_edit = _cargar_permisos()
-
-            st.markdown("**Superusuarios**")
-            _supers_str = st.text_input(
-                "Usuarios separados por coma",
-                value=", ".join(_perms_edit.get("superusers", [])),
-                key="admin_supers",
-            )
-
-            st.markdown("---")
-            st.markdown("**Usuarios regulares**")
-
-            _users_edit = dict(_perms_edit.get("users", {}))
-            _todos_users = list(_users_edit.keys())
-
-            # Agregar nuevo usuario
-            _nuevo = st.text_input("Nuevo usuario (nombre)", key="admin_nuevo_user").strip()
-            if st.button("Agregar usuario", key="admin_add_user"):
-                if _nuevo and _nuevo not in _users_edit:
-                    _users_edit[_nuevo] = {"clientes": [], "centros": [], "tabs": []}
-                    _perms_edit["users"] = _users_edit
-                    _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
-                    _guardar_permisos(_perms_edit)
-                    st.success(f"Usuario '{_nuevo}' agregado.")
-                    st.rerun()
-
-            # Editar usuarios existentes
-            for _uname, _uprefs in _users_edit.items():
-                st.markdown(f"**`{_uname}`**")
-                _cli_val = st.text_area(
-                    "Clientes (uno por línea)",
-                    value="\n".join(_uprefs.get("clientes", [])),
-                    key=f"admin_cli_{_uname}",
-                    height=80,
-                )
-                _ctr_val = st.text_area(
-                    "Centros de costo (uno por línea)",
-                    value="\n".join(_uprefs.get("centros", [])),
-                    key=f"admin_ctr_{_uname}",
-                    height=60,
-                )
-                _tabs_val = st.text_input(
-                    "Tabs (vacío = todas · ej: Facturación, CC)",
-                    value=", ".join(_uprefs.get("tabs", [])),
-                    key=f"admin_tabs_{_uname}",
-                )
-                _col_save, _col_del = st.columns(2)
-                with _col_save:
-                    if st.button("Guardar", key=f"admin_save_{_uname}", use_container_width=True):
-                        _users_edit[_uname] = {
-                            "clientes": [c.strip() for c in _cli_val.splitlines() if c.strip()],
-                            "centros":  [c.strip() for c in _ctr_val.splitlines() if c.strip()],
-                            "tabs":     [t.strip() for t in _tabs_val.split(",") if t.strip()],
-                        }
-                        _perms_edit["users"] = _users_edit
-                        _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
-                        if _guardar_permisos(_perms_edit):
-                            st.success("Guardado.")
-                        else:
-                            st.error("No se pudo guardar. Revisá permisos del archivo.")
-                        st.rerun()
-                with _col_del:
-                    if st.button("Eliminar", key=f"admin_del_{_uname}", use_container_width=True):
-                        _users_edit.pop(_uname, None)
-                        _perms_edit["users"] = _users_edit
-                        _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
-                        _guardar_permisos(_perms_edit)
-                        st.rerun()
-                st.markdown("---")
-
-            # Guardar solo la lista de superusuarios (sin tocar users)
-            if st.button("Guardar superusuarios", key="admin_save_supers"):
-                _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
-                if _guardar_permisos(_perms_edit):
-                    st.success("Superusuarios guardados.")
-                else:
-                    st.error("No se pudo guardar.")
 
     st.markdown("---")
 # ── Período global — justo debajo del navbar ────
@@ -1821,3 +1741,193 @@ if st.session_state["tab_nav"] == "Clientes":
             use_container_width=True,
             hide_index=True,
         )
+
+# ══════════════════════════════════════════════
+# SECCIÓN ADMIN — solo superusuarios
+# ══════════════════════════════════════════════
+if st.session_state.get("tab_nav") == "Admin" and _es_superusuario:
+
+    st.markdown("""
+    <style>
+    .admin-header {
+        font-family: 'Sora', 'Segoe UI', Arial, sans-serif;
+        font-size: 1.55rem;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: -0.03em;
+        margin-bottom: 0.15rem;
+    }
+    .admin-sub {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-bottom: 2rem;
+    }
+    .admin-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 1.4rem 1.6rem 1.2rem 1.6rem;
+        margin-bottom: 1.2rem;
+        box-shadow: 0 4px 16px rgba(15,23,42,0.05);
+    }
+    .admin-card-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .admin-badge {
+        display: inline-block;
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 99px;
+        margin-left: 6px;
+        letter-spacing: 0.02em;
+        vertical-align: middle;
+    }
+    .admin-divider {
+        border: none;
+        border-top: 1px solid #f1f5f9;
+        margin: 1rem 0;
+    }
+    .admin-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 0.3rem;
+    }
+    .admin-hint {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin-top: 0.2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="admin-header">⚙ Gestión de usuarios</div>', unsafe_allow_html=True)
+    st.markdown('<div class="admin-sub">Configurá accesos y permisos de cada usuario. Solo los superusuarios pueden ver esta sección.</div>', unsafe_allow_html=True)
+
+    _perms_edit = _cargar_permisos()
+    _users_edit = dict(_perms_edit.get("users", {}))
+
+    # ── Card: Superusuarios ─────────────────────────
+    st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+    st.markdown('<div class="admin-card-title">👑 Superusuarios</div>', unsafe_allow_html=True)
+    st.markdown('<div class="admin-label">Usuarios con acceso total (separados por coma)</div>', unsafe_allow_html=True)
+    _supers_str = st.text_input(
+        "superusuarios",
+        value=", ".join(_perms_edit.get("superusers", [])),
+        key="admin_supers",
+        label_visibility="collapsed",
+        placeholder="ej: admin, sebastian",
+    )
+    st.markdown('<div class="admin-hint">Estos usuarios ven todo y pueden gestionar permisos.</div>', unsafe_allow_html=True)
+    if st.button("Guardar superusuarios", key="admin_save_supers", type="primary"):
+        _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+        if _guardar_permisos(_perms_edit):
+            st.success("✓ Superusuarios guardados.")
+        else:
+            st.error("No se pudo guardar. Revisá permisos del archivo.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Card: Agregar nuevo usuario ─────────────────
+    st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+    st.markdown('<div class="admin-card-title">➕ Agregar usuario regular</div>', unsafe_allow_html=True)
+    _col_new1, _col_new2 = st.columns([3, 1])
+    with _col_new1:
+        _nuevo = st.text_input(
+            "nombre usuario",
+            key="admin_nuevo_user",
+            label_visibility="collapsed",
+            placeholder="nombre de usuario exacto (igual al login)",
+        ).strip()
+    with _col_new2:
+        if st.button("Agregar", key="admin_add_user", use_container_width=True, type="primary"):
+            if _nuevo and _nuevo not in _users_edit:
+                _users_edit[_nuevo] = {"clientes": [], "centros": [], "tabs": []}
+                _perms_edit["users"] = _users_edit
+                _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                _guardar_permisos(_perms_edit)
+                st.success(f"✓ Usuario '{_nuevo}' agregado.")
+                st.rerun()
+            elif _nuevo in _users_edit:
+                st.warning("Ese usuario ya existe.")
+            else:
+                st.warning("Ingresá un nombre de usuario.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Cards por usuario ───────────────────────────
+    if _users_edit:
+        st.markdown(f"### Usuarios regulares <span class='admin-badge'>{len(_users_edit)}</span>", unsafe_allow_html=True)
+        for _uname, _uprefs in list(_users_edit.items()):
+            st.markdown(f'<div class="admin-card">', unsafe_allow_html=True)
+            _hcol1, _hcol2 = st.columns([4, 1])
+            with _hcol1:
+                st.markdown(f'<div class="admin-card-title">👤 {_uname}</div>', unsafe_allow_html=True)
+            with _hcol2:
+                if st.button("🗑 Eliminar", key=f"admin_del_{_uname}", use_container_width=True):
+                    _users_edit.pop(_uname, None)
+                    _perms_edit["users"] = _users_edit
+                    _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                    _guardar_permisos(_perms_edit)
+                    st.rerun()
+
+            _ucol1, _ucol2, _ucol3 = st.columns([3, 2, 2])
+            with _ucol1:
+                st.markdown('<div class="admin-label">Clientes visibles</div>', unsafe_allow_html=True)
+                _cli_val = st.text_area(
+                    f"cli_{_uname}",
+                    value="\n".join(_uprefs.get("clientes", [])),
+                    key=f"admin_cli_{_uname}",
+                    height=120,
+                    label_visibility="collapsed",
+                    placeholder="Un cliente por línea\n(vacío = todos)",
+                )
+            with _ucol2:
+                st.markdown('<div class="admin-label">Centros de costo</div>', unsafe_allow_html=True)
+                _ctr_val = st.text_area(
+                    f"ctr_{_uname}",
+                    value="\n".join(_uprefs.get("centros", [])),
+                    key=f"admin_ctr_{_uname}",
+                    height=120,
+                    label_visibility="collapsed",
+                    placeholder="Un centro por línea\n(vacío = todos)",
+                )
+            with _ucol3:
+                st.markdown('<div class="admin-label">Pestañas habilitadas</div>', unsafe_allow_html=True)
+                _tabs_disponibles = ["Facturación", "CC", "Clientes"]
+                _tabs_actuales = _uprefs.get("tabs", [])
+                _tabs_val = st.multiselect(
+                    f"tabs_{_uname}",
+                    options=_tabs_disponibles,
+                    default=[t for t in _tabs_actuales if t in _tabs_disponibles],
+                    key=f"admin_tabs_{_uname}",
+                    label_visibility="collapsed",
+                    placeholder="Todas (sin restricción)",
+                )
+
+            if st.button("💾 Guardar cambios", key=f"admin_save_{_uname}", type="primary"):
+                _users_edit[_uname] = {
+                    "clientes": [c.strip() for c in _cli_val.splitlines() if c.strip()],
+                    "centros":  [c.strip() for c in _ctr_val.splitlines() if c.strip()],
+                    "tabs":     _tabs_val,
+                }
+                _perms_edit["users"] = _users_edit
+                _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
+                if _guardar_permisos(_perms_edit):
+                    st.success(f"✓ Permisos de '{_uname}' guardados.")
+                else:
+                    st.error("No se pudo guardar. Revisá permisos del archivo.")
+                st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.info("No hay usuarios regulares todavía. Agregá uno arriba.")
