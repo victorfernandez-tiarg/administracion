@@ -10,6 +10,8 @@ import warnings
 
 import pandas as pd
 
+from etl.db import guardar as db_guardar
+
 warnings.filterwarnings(
     "ignore",
     message="Workbook contains no default style, apply openpyxl's default",
@@ -212,10 +214,6 @@ def cargar_composicion_saldos(hoy: pd.Timestamp) -> pd.DataFrame | None:
     resumen = resumen.merge(centros_lista, on="Cliente", how="left")
     resumen["fuente_aging"] = "composicion"
 
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        comp.to_parquet(PROCESSED_DIR / "cc_composicion.parquet", index=False)
-    except ImportError:
-        comp.to_csv(PROCESSED_DIR / "cc_composicion.csv", index=False)
+    db_guardar(comp, "cc_composicion")
 
     return resumen
