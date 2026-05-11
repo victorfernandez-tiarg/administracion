@@ -37,8 +37,7 @@ def main():
         print("La contraseña no puede estar vacía.")
         return
 
-    h = hash_password(password, salt)
-    print(f"\nAgregá esta línea en la sección [users] de .streamlit/secrets.toml:")
+    h = hash_password(password, salt)    print(f"\nAgregá esta línea en la sección [users] de .streamlit/secrets.toml:")
     print(f'\n{usuario} = "{h}"\n')
 
 if __name__ == "__main__":

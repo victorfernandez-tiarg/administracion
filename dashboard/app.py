@@ -390,17 +390,48 @@ st.markdown(THEME_CSS, unsafe_allow_html=True)
 # ── Login ───────────────────────────────────────────
 import hashlib
 
-def _hash_password(password: str) -> str:
-    """Hash con PBKDF2-SHA256 usando el salt del secrets."""
-    salt = st.secrets.get("auth", {}).get("salt", "")
+def _get_auth_config() -> tuple[str, dict]:
+    """
+    Devuelve (salt, {usuario: hash}).
+    Prioridad: st.secrets → variables de entorno.
+    Variables de entorno:
+        AUTH_SALT   = "el_salt"
+        AUTH_USERS  = "admin:hash1,usuario2:hash2"
+    """
+    salt = ""
+    users: dict = {}
+
+    # 1) Intentar st.secrets (local / .streamlit/secrets.toml)
+    try:
+        salt = st.secrets.get("auth", {}).get("salt", "")
+        users = dict(st.secrets.get("users", {}))
+    except FileNotFoundError:
+        pass
+
+    # 2) Fallback: variables de entorno (Railway / Docker)
+    if not salt:
+        salt = os.getenv("AUTH_SALT", "")
+    if not users:
+        raw = os.getenv("AUTH_USERS", "")          # formato: "admin:hash1,user2:hash2"
+        for entry in raw.split(","):
+            entry = entry.strip()
+            if ":" in entry:
+                u, h = entry.split(":", 1)
+                users[u.strip()] = h.strip()
+
+    return salt, users
+
+
+def _hash_password(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000).hex()
 
+
 def _check_credentials(username: str, password: str) -> bool:
-    users = st.secrets.get("users", {})
+    salt, users = _get_auth_config()
     expected = users.get(username)
-    if not expected:
+    if not expected or not salt:
         return False
-    return expected == _hash_password(password)
+    return expected == _hash_password(password, salt)
 
 def _login_page():
     st.markdown("""
