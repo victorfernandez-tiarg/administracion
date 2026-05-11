@@ -21,6 +21,7 @@ from pathlib import Path
 from datetime import datetime
 import json
 import warnings
+from etl.db import guardar, guardar_meta
 
 warnings.filterwarnings(
     "ignore",
@@ -151,12 +152,6 @@ def calcular_resumen_clientes(df: pd.DataFrame) -> pd.DataFrame:
     return resumen
 
 
-def guardar(df: pd.DataFrame, nombre: str):
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(PROCESSED_DIR / f"{nombre}.parquet", index=False)
-    print(f"  ✓ {nombre}.parquet guardado ({len(df)} filas)")
-
-
 def correr_etl(sync_drive: bool | None = None):
     print("─" * 40)
     print("Corriendo ETL Finnegans BI...")
@@ -175,8 +170,7 @@ def correr_etl(sync_drive: bool | None = None):
         resumen = calcular_resumen_clientes(facturas)
         guardar(resumen, "resumen_clientes")
         meta = {"ultima_actualizacion": datetime.now().isoformat(), "filas": len(facturas)}
-        with open(PROCESSED_DIR / "meta.json", "w") as f:
-            json.dump(meta, f)
+        guardar_meta(meta)
         print(f"ETL finalizado. {len(facturas)} registros procesados.")
     except FileNotFoundError as e:
         print(f"  ✗ {e}")

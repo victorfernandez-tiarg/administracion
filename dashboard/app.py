@@ -1,4 +1,4 @@
-﻿
+
 """
 Finnegans BI — Dashboard Híbrido
 Facturación + Cuentas Corrientes reales de Finnegans GO
@@ -22,6 +22,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 from etl.procesar    import correr_etl
 from etl.procesar_cc import correr_etl_cc, calcular_aging
 from etl.sync_drive  import sincronizar
+from etl.db          import cargar as db_cargar, cargar_meta as db_cargar_meta, cargar_permisos as db_cargar_permisos, guardar_permisos as db_guardar_permisos
  
  
  
@@ -494,35 +495,10 @@ if not st.session_state.get("authenticated"):
 _PERMISOS_PATH = Path(__file__).parent / "permisos.json"
 
 def _cargar_permisos() -> dict:
-    """Lee permisos desde archivo JSON o env var PERMISSIONS_JSON."""
-    # 1) archivo local / en container
-    if _PERMISOS_PATH.exists():
-        try:
-            with open(_PERMISOS_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    # 2) variable de entorno (Railway sin volumen)
-    raw = os.getenv("PERMISSIONS_JSON", "")
-    if raw:
-        try:
-            data = json.loads(raw)
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    return {"superusers": [], "users": {}}
+    return db_cargar_permisos()
 
 def _guardar_permisos(perms: dict) -> bool:
-    try:
-        with open(_PERMISOS_PATH, "w", encoding="utf-8") as f:
-            json.dump(perms, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception:
-        return False
-
+    return db_guardar_permisos(perms)
 _permisos_global   = _cargar_permisos()
 _username_actual   = st.session_state.get("username", "")
 _es_superusuario   = _username_actual in _permisos_global.get("superusers", [])
@@ -537,11 +513,7 @@ _tabs_perm          = [t.strip()         for t in _perms_usuario.get("tabs",    
 # ── Helpers ────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def load(nombre):
-    for ext in ("parquet", "csv"):
-        p = PROCESSED_DIR / f"{nombre}.{ext}"
-        if p.exists():
-            return pd.read_parquet(p) if ext == "parquet" else pd.read_csv(p, parse_dates=True)
-    return None
+    return db_cargar(nombre)
  
 def fmt_m(v, moneda="ARS"):
     if moneda == "USD":
@@ -588,8 +560,7 @@ def parsear_fecha_iso(valor):
  
 @st.cache_data(show_spinner=False)
 def load_meta():
-    p = PROCESSED_DIR / "meta.json"
-    return json.load(open(p)) if p.exists() else {}
+    return db_cargar_meta()
 
 
 def _normalizar_columna(nombre: str) -> str:

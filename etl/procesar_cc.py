@@ -13,6 +13,7 @@ from datetime import date
 import warnings
 
 from etl.procesar_composicion import cargar_composicion_saldos
+from etl.db import guardar
 
 warnings.filterwarnings(
     "ignore",
@@ -302,17 +303,6 @@ def procesar_cc() -> tuple:
     return df, saldos
 
 
-def guardar_csv(df: pd.DataFrame, nombre: str):
-    """Guarda como parquet si pyarrow disponible, sino CSV."""
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        df.to_parquet(PROCESSED_DIR / f"{nombre}.parquet", index=False)
-        print(f"  ✓ {nombre}.parquet ({len(df)} filas)")
-    except ImportError:
-        df.to_csv(PROCESSED_DIR / f"{nombre}.csv", index=False)
-        print(f"  ✓ {nombre}.csv ({len(df)} filas)")
-
-
 def correr_etl_cc(sync_drive: bool | None = None):
     print("Procesando cuentas corrientes...")
     
@@ -325,8 +315,8 @@ def correr_etl_cc(sync_drive: bool | None = None):
     
     try:
         movimientos, saldos = procesar_cc()
-        guardar_csv(movimientos, "cc_movimientos")
-        guardar_csv(saldos, "cc_saldos")
+        guardar(movimientos, "cc_movimientos")
+        guardar(saldos, "cc_saldos")
         print(f"  → {len(saldos)} clientes con saldo pendiente")
         print(f"  → Deuda total: ${saldos['saldo_actual'].sum():,.0f}")
         return movimientos, saldos
