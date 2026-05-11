@@ -1846,6 +1846,32 @@ if st.session_state.get("tab_nav") == "Admin" and _es_superusuario:
             st.error("No se pudo guardar. Revisá permisos del archivo.")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── Card: Generador de contraseña ───────────────
+    st.markdown('<div class="admin-card">', unsafe_allow_html=True)
+    st.markdown('<div class="admin-card-title">🔑 Generar contraseña para un usuario</div>', unsafe_allow_html=True)
+    st.markdown('<div class="admin-hint" style="margin-bottom:0.8rem;">Generá el hash de la contraseña y pegalo en la variable <b>AUTH_USERS</b> de Railway.</div>', unsafe_allow_html=True)
+    _gcol1, _gcol2, _gcol3 = st.columns([2, 2, 1])
+    with _gcol1:
+        _gen_user = st.text_input("Usuario", key="gen_user", placeholder="nombre de usuario", label_visibility="collapsed")
+    with _gcol2:
+        _gen_pass = st.text_input("Contraseña", key="gen_pass", placeholder="contraseña", type="password", label_visibility="collapsed")
+    with _gcol3:
+        _gen_btn = st.button("Generar", key="gen_btn", use_container_width=True, type="primary")
+
+    if _gen_btn:
+        if _gen_user.strip() and _gen_pass:
+            _gen_salt, _ = _get_auth_config()
+            if _gen_salt:
+                _gen_hash = _hash_password(_gen_pass, _gen_salt)
+                _gen_entry = f"{_gen_user.strip()}:{_gen_hash}"
+                st.success("✓ Hash generado. Copiá la línea de abajo y pegala en Railway → Variables → AUTH_USERS (separando usuarios con coma).")
+                st.code(_gen_entry, language=None)
+            else:
+                st.error("No se encontró AUTH_SALT. Configurá la variable en Railway primero.")
+        else:
+            st.warning("Completá usuario y contraseña.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
     # ── Card: Agregar nuevo usuario ─────────────────
     st.markdown('<div class="admin-card">', unsafe_allow_html=True)
     st.markdown('<div class="admin-card-title">➕ Agregar usuario regular</div>', unsafe_allow_html=True)
