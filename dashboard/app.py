@@ -386,7 +386,79 @@ pio.templates["finnegans_min"] = go.layout.Template(
 )
 pio.templates.default = "finnegans_min"
 st.markdown(THEME_CSS, unsafe_allow_html=True)
- 
+
+# ── Login ───────────────────────────────────────────
+import hashlib
+
+def _hash_password(password: str) -> str:
+    """Hash con PBKDF2-SHA256 usando el salt del secrets."""
+    salt = st.secrets.get("auth", {}).get("salt", "")
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000).hex()
+
+def _check_credentials(username: str, password: str) -> bool:
+    users = st.secrets.get("users", {})
+    expected = users.get(username)
+    if not expected:
+        return False
+    return expected == _hash_password(password)
+
+def _login_page():
+    st.markdown("""
+    <style>
+    /* Ocultar sidebar en el login */
+    [data-testid="stSidebar"] { display: none !important; }
+    .block-container { padding-top: 6rem !important; }
+    .login-card {
+        max-width: 400px;
+        margin: 0 auto;
+        background: rgba(255,255,255,0.92);
+        border: 1px solid #dbe4f0;
+        border-radius: 22px;
+        padding: 2.5rem 2rem 2rem 2rem;
+        box-shadow: 0 18px 50px rgba(15,23,42,0.08);
+    }
+    .login-title {
+        font-family: 'Sora', 'Segoe UI', Arial, sans-serif;
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: -0.03em;
+        margin-bottom: 0.25rem;
+    }
+    .login-sub {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-bottom: 1.5rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        logo_path = ASSETS_DIR / "logo_empresa.png"
+        if logo_path.exists():
+            st.image(str(logo_path), width=160)
+        st.markdown('<div class="login-title">Acceso al dashboard</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-sub">Ingresá con tus credenciales</div>', unsafe_allow_html=True)
+
+        with st.form("login_form", clear_on_submit=False):
+            usuario = st.text_input("Usuario", placeholder="nombre de usuario")
+            password = st.text_input("Contraseña", type="password", placeholder="••••••••")
+            submitted = st.form_submit_button("Ingresar", use_container_width=True)
+
+        if submitted:
+            if _check_credentials(usuario.strip(), password):
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = usuario.strip()
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos.")
+
+# Verificar autenticación antes de mostrar cualquier cosa
+if not st.session_state.get("authenticated"):
+    _login_page()
+    st.stop()
+
 # ── Helpers ────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def load(nombre):
@@ -706,6 +778,18 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
  
+    st.markdown("---")
+
+    # Usuario activo + cerrar sesión
+    username_display = st.session_state.get("username", "")
+    st.markdown(
+        f'<div style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.4rem;">👤 {username_display}</div>',
+        unsafe_allow_html=True,
+    )
+    if st.button("Cerrar sesión", key="btn_logout", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
     st.markdown("---")
 
     st.markdown("**Navegación**")
