@@ -528,9 +528,11 @@ _username_actual   = st.session_state.get("username", "")
 _es_superusuario   = _username_actual in _permisos_global.get("superusers", [])
 _perms_usuario     = _permisos_global.get("users", {}).get(_username_actual, {})
 # Listas de permisos para el usuario actual (vacío = sin restricción)
-_clientes_perm     = [c.strip().title() for c in _perms_usuario.get("clientes", [])]
-_centros_perm      = [c.strip()         for c in _perms_usuario.get("centros",  [])]
-_tabs_perm         = [t.strip()         for t in _perms_usuario.get("tabs",     [])]
+_clientes_perm      = [c.strip().title() for c in _perms_usuario.get("clientes", [])]
+_clientes_perm_modo = _perms_usuario.get("clientes_modo", "Excluir")   # "Incluir" o "Excluir"
+_centros_perm       = [c.strip()         for c in _perms_usuario.get("centros",  [])]
+_centros_perm_modo  = _perms_usuario.get("centros_modo",  "Excluir")
+_tabs_perm          = [t.strip()         for t in _perms_usuario.get("tabs",     [])]
 
 # ── Helpers ────────────────────────────────────────
 @st.cache_data(show_spinner=False)
@@ -837,10 +839,16 @@ centros_opts = sorted(set([c for c in centros_opts if c]))
 if not _es_superusuario:
     if _clientes_perm:
         _set_cli = set(_clientes_perm)
-        clientes_opts = [c for c in clientes_opts if c.strip().title() in _set_cli]
+        if _clientes_perm_modo == "Excluir":
+            clientes_opts = [c for c in clientes_opts if c.strip().title() not in _set_cli]
+        else:
+            clientes_opts = [c for c in clientes_opts if c.strip().title() in _set_cli]
     if _centros_perm:
         _set_ctr = set(_centros_perm)
-        centros_opts = [c for c in centros_opts if c.strip() in _set_ctr]
+        if _centros_perm_modo == "Excluir":
+            centros_opts = [c for c in centros_opts if c.strip() not in _set_ctr]
+        else:
+            centros_opts = [c for c in centros_opts if c.strip() in _set_ctr]
 
 # ── Sidebar ────────────────────────────────────────
 with st.sidebar:
@@ -1880,45 +1888,96 @@ if st.session_state.get("tab_nav") == "Admin" and _es_superusuario:
                     _guardar_permisos(_perms_edit)
                     st.rerun()
 
-            _ucol1, _ucol2, _ucol3 = st.columns([3, 2, 2])
-            with _ucol1:
-                st.markdown('<div class="admin-label">Clientes visibles</div>', unsafe_allow_html=True)
-                _cli_val = st.text_area(
-                    f"cli_{_uname}",
-                    value="\n".join(_uprefs.get("clientes", [])),
+            # ── Clientes ──
+            st.markdown('<div class="admin-label">Clientes</div>', unsafe_allow_html=True)
+            _cli_modo_actual = _uprefs.get("clientes_modo", "Excluir")
+            _ccol1, _ccol2 = st.columns([1, 3])
+            with _ccol1:
+                _cli_modo = st.radio(
+                    f"modo_cli_{_uname}",
+                    ["Excluir", "Incluir"],
+                    index=0 if _cli_modo_actual == "Excluir" else 1,
+                    key=f"admin_cli_modo_{_uname}",
+                    label_visibility="collapsed",
+                    help="Excluir: el usuario ve todos menos los seleccionados.\nIncluir: el usuario ve solo los seleccionados.",
+                )
+            with _ccol2:
+                _cli_label = "Clientes a excluir" if _cli_modo == "Excluir" else "Clientes a incluir"
+                _cli_val = st.multiselect(
+                    _cli_label,
+                    options=clientes_opts,
+                    default=[c for c in _uprefs.get("clientes", []) if c in clientes_opts],
                     key=f"admin_cli_{_uname}",
-                    height=120,
                     label_visibility="collapsed",
-                    placeholder="Un cliente por línea\n(vacío = todos)",
+                    placeholder=f"Seleccioná clientes a {_cli_modo.lower()}...",
                 )
-            with _ucol2:
-                st.markdown('<div class="admin-label">Centros de costo</div>', unsafe_allow_html=True)
-                _ctr_val = st.text_area(
-                    f"ctr_{_uname}",
-                    value="\n".join(_uprefs.get("centros", [])),
+            _n_cli = len(_cli_val)
+            _total_cli = len(clientes_opts)
+            _resultado_cli = _total_cli - _n_cli if _cli_modo == "Excluir" else _n_cli
+            st.markdown(
+                f'<div class="admin-hint">El usuario verá <b>{_resultado_cli}</b> de {_total_cli} clientes.</div>',
+                unsafe_allow_html=True,
+            )
+
+            st.markdown('<hr class="admin-divider">', unsafe_allow_html=True)
+
+            # ── Centros de costo ──
+            st.markdown('<div class="admin-label">Centros de costo</div>', unsafe_allow_html=True)
+            _ctr_modo_actual = _uprefs.get("centros_modo", "Excluir")
+            _ctrcol1, _ctrcol2 = st.columns([1, 3])
+            with _ctrcol1:
+                _ctr_modo = st.radio(
+                    f"modo_ctr_{_uname}",
+                    ["Excluir", "Incluir"],
+                    index=0 if _ctr_modo_actual == "Excluir" else 1,
+                    key=f"admin_ctr_modo_{_uname}",
+                    label_visibility="collapsed",
+                    help="Excluir: el usuario ve todos menos los seleccionados.\nIncluir: el usuario ve solo los seleccionados.",
+                )
+            with _ctrcol2:
+                _ctr_label = "Centros a excluir" if _ctr_modo == "Excluir" else "Centros a incluir"
+                _ctr_val = st.multiselect(
+                    _ctr_label,
+                    options=centros_opts,
+                    default=[c for c in _uprefs.get("centros", []) if c in centros_opts],
                     key=f"admin_ctr_{_uname}",
-                    height=120,
                     label_visibility="collapsed",
-                    placeholder="Un centro por línea\n(vacío = todos)",
+                    placeholder=f"Seleccioná centros a {_ctr_modo.lower()}...",
                 )
-            with _ucol3:
-                st.markdown('<div class="admin-label">Pestañas habilitadas</div>', unsafe_allow_html=True)
-                _tabs_disponibles = ["Facturación", "CC", "Clientes"]
-                _tabs_actuales = _uprefs.get("tabs", [])
-                _tabs_val = st.multiselect(
-                    f"tabs_{_uname}",
-                    options=_tabs_disponibles,
-                    default=[t for t in _tabs_actuales if t in _tabs_disponibles],
-                    key=f"admin_tabs_{_uname}",
-                    label_visibility="collapsed",
-                    placeholder="Todas (sin restricción)",
-                )
+            _n_ctr = len(_ctr_val)
+            _total_ctr = len(centros_opts)
+            _resultado_ctr = _total_ctr - _n_ctr if _ctr_modo == "Excluir" else _n_ctr
+            st.markdown(
+                f'<div class="admin-hint">El usuario verá <b>{_resultado_ctr}</b> de {_total_ctr} centros.</div>',
+                unsafe_allow_html=True,
+            )
+
+            st.markdown('<hr class="admin-divider">', unsafe_allow_html=True)
+
+            # ── Pestañas ──
+            st.markdown('<div class="admin-label">Pestañas habilitadas</div>', unsafe_allow_html=True)
+            _tabs_disponibles = ["Facturación", "CC", "Clientes"]
+            _tabs_actuales = _uprefs.get("tabs", [])
+            _tabs_val = st.multiselect(
+                f"tabs_{_uname}",
+                options=_tabs_disponibles,
+                default=[t for t in _tabs_actuales if t in _tabs_disponibles],
+                key=f"admin_tabs_{_uname}",
+                label_visibility="collapsed",
+                placeholder="Todas (sin restricción)",
+            )
+            st.markdown(
+                '<div class="admin-hint">Dejá vacío para habilitar todas las pestañas.</div>',
+                unsafe_allow_html=True,
+            )
 
             if st.button("💾 Guardar cambios", key=f"admin_save_{_uname}", type="primary"):
                 _users_edit[_uname] = {
-                    "clientes": [c.strip() for c in _cli_val.splitlines() if c.strip()],
-                    "centros":  [c.strip() for c in _ctr_val.splitlines() if c.strip()],
-                    "tabs":     _tabs_val,
+                    "clientes":      _cli_val,
+                    "clientes_modo": _cli_modo,
+                    "centros":       _ctr_val,
+                    "centros_modo":  _ctr_modo,
+                    "tabs":          _tabs_val,
                 }
                 _perms_edit["users"] = _users_edit
                 _perms_edit["superusers"] = [s.strip() for s in _supers_str.split(",") if s.strip()]
