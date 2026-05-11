@@ -1662,49 +1662,53 @@ if st.session_state["tab_nav"] == "CC":
             idx_sel = evento_top10.selection["rows"][0]
             cliente_sel = top10_tabla.iloc[idx_sel]["Cliente"]
 
-            with st.expander(f"Comprobantes adeudados · {cliente_sel}", expanded=True):
-                if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
-                    comprobantes_cli = df_cc_comp[
-                        df_cc_comp["Cliente"].astype(str).str.strip().str.title() == cliente_sel.strip().title()
+            with st.expander(f"Movimientos · {cliente_sel}", expanded=True):
+                if df_cc_mov is not None and not df_cc_mov.empty:
+                    mov_det = df_cc_mov[
+                        df_cc_mov["Cliente"].astype(str).str.strip().str.title()
+                        == cliente_sel.strip().title()
                     ].copy()
-                    comprobantes_cli["saldo_abierto"] = pd.to_numeric(
-                        comprobantes_cli.get("saldo_abierto", 0), errors="coerce"
-                    ).fillna(0)
-                    comprobantes_cli = comprobantes_cli[comprobantes_cli["saldo_abierto"] > 0].copy()
 
-                    if "Documento_ref" in comprobantes_cli.columns:
-                        tipo_doc = comprobantes_cli["Documento_ref"].astype(str).str.upper()
-                        mask_docs = (
-                            tipo_doc.str.contains("FAC", na=False)
-                            | tipo_doc.str.contains("FACT", na=False)
-                            | tipo_doc.str.contains("ND", na=False)
-                            | tipo_doc.str.contains("DEBIT", na=False)
-                        )
-                        if mask_docs.any():
-                            comprobantes_cli = comprobantes_cli[mask_docs].copy()
+                    if "Fecha" in mov_det.columns:
+                        mov_det["Fecha"] = pd.to_datetime(mov_det["Fecha"], errors="coerce")
+                        mov_det = mov_det.sort_values("Fecha")
 
-                    if comprobantes_cli.empty:
-                        st.success(f"Sin comprobantes adeudados para {cliente_sel}.")
+                    if mov_det.empty:
+                        st.info(f"Sin movimientos para {cliente_sel}.")
                     else:
-                        comp_tabla = pd.DataFrame()
-                        if "Documento_ref" in comprobantes_cli.columns:
-                            comp_tabla["Comprobante"] = comprobantes_cli["Documento_ref"].astype(str)
-                        else:
-                            comp_tabla["Comprobante"] = pd.Series([""] * len(comprobantes_cli), index=comprobantes_cli.index)
-                        comp_tabla["Saldo"] = comprobantes_cli["saldo_abierto"].map(lambda v: f"$ {v:,.0f}")
-                        if "venc_comp" in comprobantes_cli.columns:
-                            comp_tabla["Vencimiento"] = pd.to_datetime(
-                                comprobantes_cli["venc_comp"], errors="coerce"
+                        det = pd.DataFrame()
+                        if "Fecha" in mov_det.columns:
+                            det["Fecha"] = mov_det["Fecha"].dt.strftime("%d/%m/%Y")
+                        if "Documento" in mov_det.columns:
+                            det["Documento"] = mov_det["Documento"].astype(str)
+                        if "Descripción" in mov_det.columns:
+                            det["Descripción"] = mov_det["Descripción"].astype(str)
+                        if "Fecha vencimiento" in mov_det.columns:
+                            det["Vencimiento"] = pd.to_datetime(
+                                mov_det["Fecha vencimiento"], errors="coerce"
                             ).dt.strftime("%d/%m/%Y")
-                        if "dias_vencido_item" in comprobantes_cli.columns:
-                            dias = pd.to_numeric(comprobantes_cli["dias_vencido_item"], errors="coerce").fillna(0)
-                            comp_tabla["Prioridad"] = np.where(
-                                dias > 90, "Alta",
-                                np.where(dias > 30, "Media", "Baja"),
-                            )
-                        st.dataframe(comp_tabla, use_container_width=True, hide_index=True)
+                        if "tipo" in mov_det.columns:
+                            det["Tipo"] = mov_det["tipo"].astype(str)
+                        for col_orig, col_dest in [
+                            ("Debe ppal",  "Debe"),
+                            ("Haber ppal", "Haber"),
+                            ("Saldo ppal", "Saldo"),
+                        ]:
+                            if col_orig in mov_det.columns:
+                                vals = pd.to_numeric(mov_det[col_orig], errors="coerce").fillna(0)
+                                det[col_dest] = vals.map(lambda v: f"$ {v:,.0f}" if v != 0 else "")
+
+                        debe_t  = pd.to_numeric(mov_det.get("Debe ppal",  pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                        haber_t = pd.to_numeric(mov_det.get("Haber ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                        saldo_f = pd.to_numeric(mov_det.get("Saldo ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).iloc[-1] if len(mov_det) else 0
+                        mc1, mc2, mc3 = st.columns(3)
+                        mc1.metric("Facturado (Debe)",  f"$ {debe_t:,.0f}")
+                        mc2.metric("Cobrado (Haber)",   f"$ {haber_t:,.0f}")
+                        mc3.metric("Saldo actual",      f"$ {saldo_f:,.0f}")
+
+                        st.dataframe(det, use_container_width=True, hide_index=True)
                 else:
-                    st.info("Sin datos de composición para mostrar comprobantes adeudados.")
+                    st.info("Sin datos de movimientos cargados.")
 
         st.markdown("---")
 
