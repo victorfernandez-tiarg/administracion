@@ -940,162 +940,164 @@ with st.sidebar:
 
     st.markdown("---")
 
-    st.markdown("**Carga de archivos**")
-    if "adjuntos_status" in st.session_state:
-        st.success(st.session_state.pop("adjuntos_status"))
+    if _es_superusuario:
+        st.markdown("**Carga de archivos**")
+        if "adjuntos_status" in st.session_state:
+            st.success(st.session_state.pop("adjuntos_status"))
 
-    comp_raw_actual = _archivo_composicion_raw()
-    if comp_raw_actual is None:
-        st.caption("Composición raw: no detectada")
-    else:
-        st.caption(f"Composición raw detectada: {comp_raw_actual.name}")
-
-    up_fact = st.file_uploader(
-        "Facturación",
-        type=["xlsx"],
-        key="upload_fact",
-        help="Se guarda como data/raw/datos_facturacion.xlsx",
-    )
-    up_cc = st.file_uploader(
-        "Ctas. Ctes.",
-        type=["xlsx"],
-        key="upload_cc",
-        help="Se guarda como data/raw/cc_clientes.xlsx",
-    )
-    up_comp = st.file_uploader(
-        "Composición de saldos",
-        type=["xlsx"],
-        key="upload_comp",
-        help="Se guarda como data/raw/composicion_saldos.xlsx",
-    )
-
-    if st.button("Validar y procesar adjuntos", type="primary"):
-        if up_fact is None and up_cc is None and up_comp is None:
-            st.warning("Adjuntá al menos un archivo para procesar.")
+        comp_raw_actual = _archivo_composicion_raw()
+        if comp_raw_actual is None:
+            st.caption("Composición raw: no detectada")
         else:
-            errores = []
-            advertencias = []
-            guardados = []
+            st.caption(f"Composición raw detectada: {comp_raw_actual.name}")
 
-            if up_fact is not None:
-                ok, msg = _validar_excel_bytes(
-                    up_fact.getvalue(),
-                    ["Fecha", "Cliente", "Empresa", "Moneda", "Documento", "Importe mon. principal", "Imp. usd", "Nivel 1 dimensión"],
-                )
-                if not ok:
-                    errores.append(f"Facturación: {msg}")
-                else:
-                    _guardar_adjunto_en_raw(up_fact, RAW_DIR / "datos_facturacion.xlsx")
-                    guardados.append("Facturación")
+        up_fact = st.file_uploader(
+            "Facturación",
+            type=["xlsx"],
+            key="upload_fact",
+            help="Se guarda como data/raw/datos_facturacion.xlsx",
+        )
+        up_cc = st.file_uploader(
+            "Ctas. Ctes.",
+            type=["xlsx"],
+            key="upload_cc",
+            help="Se guarda como data/raw/cc_clientes.xlsx",
+        )
+        up_comp = st.file_uploader(
+            "Composición de saldos",
+            type=["xlsx"],
+            key="upload_comp",
+            help="Se guarda como data/raw/composicion_saldos.xlsx",
+        )
 
-            if up_cc is not None:
-                ok, msg = _validar_excel_bytes(
-                    up_cc.getvalue(),
-                    ["Fecha", "Fecha vencimiento", "Cliente", "Documento", "Debe ppal", "Haber ppal", "Saldo ppal"],
-                )
-                if not ok:
-                    errores.append(f"Ctas. Ctes.: {msg}")
-                else:
-                    _guardar_adjunto_en_raw(up_cc, RAW_DIR / "cc_clientes.xlsx")
-                    guardados.append("Ctas. Ctes.")
-
-            if up_comp is not None:
-                ok, msg = _validar_composicion_bytes(up_comp.getvalue())
-                _guardar_adjunto_en_raw(up_comp, RAW_DIR / "composicion_saldos.xlsx")
-                guardados.append("Composición")
-                if not ok:
-                    advertencias.append(
-                        "Composición: validación flexible no concluyente; se guardó igual y se intentó procesar con ETL. "
-                        + msg
-                    )
-
-            if errores:
-                st.error("No se pudo procesar por validaciones:\n- " + "\n- ".join(errores))
+        if st.button("Validar y procesar adjuntos", type="primary"):
+            if up_fact is None and up_cc is None and up_comp is None:
+                st.warning("Adjuntá al menos un archivo para procesar.")
             else:
-                with st.spinner("Validado. Procesando archivos adjuntos..."):
+                errores = []
+                advertencias = []
+                guardados = []
+
+                if up_fact is not None:
+                    ok, msg = _validar_excel_bytes(
+                        up_fact.getvalue(),
+                        ["Fecha", "Cliente", "Empresa", "Moneda", "Documento", "Importe mon. principal", "Imp. usd", "Nivel 1 dimensión"],
+                    )
+                    if not ok:
+                        errores.append(f"Facturación: {msg}")
+                    else:
+                        _guardar_adjunto_en_raw(up_fact, RAW_DIR / "datos_facturacion.xlsx")
+                        guardados.append("Facturación")
+
+                if up_cc is not None:
+                    ok, msg = _validar_excel_bytes(
+                        up_cc.getvalue(),
+                        ["Fecha", "Fecha vencimiento", "Cliente", "Documento", "Debe ppal", "Haber ppal", "Saldo ppal"],
+                    )
+                    if not ok:
+                        errores.append(f"Ctas. Ctes.: {msg}")
+                    else:
+                        _guardar_adjunto_en_raw(up_cc, RAW_DIR / "cc_clientes.xlsx")
+                        guardados.append("Ctas. Ctes.")
+
+                if up_comp is not None:
+                    ok, msg = _validar_composicion_bytes(up_comp.getvalue())
+                    _guardar_adjunto_en_raw(up_comp, RAW_DIR / "composicion_saldos.xlsx")
+                    guardados.append("Composición")
+                    if not ok:
+                        advertencias.append(
+                            "Composición: validación flexible no concluyente; se guardó igual y se intentó procesar con ETL. "
+                            + msg
+                        )
+
+                if errores:
+                    st.error("No se pudo procesar por validaciones:\n- " + "\n- ".join(errores))
+                else:
+                    with st.spinner("Validado. Procesando archivos adjuntos..."):
+                        facturas = correr_etl(sync_drive=False)
+                        _, saldos = correr_etl_cc(sync_drive=False)
+
+                    if advertencias:
+                        st.warning("\n".join(advertencias))
+
+                    if facturas is None or saldos is None:
+                        st.error("El ETL falló luego de cargar adjuntos. Revisá formato y logs.")
+                    else:
+                        st.cache_data.clear()
+                        comp_actualizado = load("cc_composicion")
+                        comp_procesadas = 0 if comp_actualizado is None else len(comp_actualizado)
+                        st.session_state["adjuntos_status"] = (
+                            f"Procesado desde adjuntos ({', '.join(guardados)}). "
+                            f"Registros: Facturación {len(facturas):,} · CC {len(saldos):,} · Composición {comp_procesadas:,}"
+                        )
+                        for k in ["fecha_desde", "fecha_hasta"]:
+                            st.session_state.pop(k, None)
+                        st.rerun()
+
+        st.markdown("---")
+
+        if st.button("Sincronizar Drive"):
+            with st.spinner("Descargando desde Drive y reprocesando..."):
+                try:
+                    resultados_sync = sincronizar()
                     facturas = correr_etl(sync_drive=False)
                     _, saldos = correr_etl_cc(sync_drive=False)
-
-                if advertencias:
-                    st.warning("\n".join(advertencias))
-
-                if facturas is None or saldos is None:
-                    st.error("El ETL falló luego de cargar adjuntos. Revisá formato y logs.")
-                else:
+                    if facturas is None or saldos is None:
+                        raise RuntimeError("Falló el ETL luego de sincronizar Drive.")
+                    ok_comp = resultados_sync.get("composicion_saldos.xlsx", False) if isinstance(resultados_sync, dict) else False
+                    if not ok_comp:
+                        st.warning(
+                            "Sincronización parcial: no se pudo descargar composicion_saldos.xlsx. "
+                            "Revisá GOOGLE_DRIVE_COMPOSICION_FILE_ID y permisos del archivo para el service account."
+                        )
                     st.cache_data.clear()
-                    comp_actualizado = load("cc_composicion")
-                    comp_procesadas = 0 if comp_actualizado is None else len(comp_actualizado)
-                    st.session_state["adjuntos_status"] = (
-                        f"Procesado desde adjuntos ({', '.join(guardados)}). "
-                        f"Registros: Facturación {len(facturas):,} · CC {len(saldos):,} · Composición {comp_procesadas:,}"
-                    )
-                    for k in ["fecha_desde", "fecha_hasta"]:
-                        st.session_state.pop(k, None)
                     st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-    st.markdown("---")
-
-    if st.button("Sincronizar Drive"):
-        with st.spinner("Descargando desde Drive y reprocesando..."):
-            try:
-                resultados_sync = sincronizar()
+        if st.button("Reprocesar todo", type="primary"):
+            with st.spinner("Procesando Excel locales..."):
                 facturas = correr_etl(sync_drive=False)
                 _, saldos = correr_etl_cc(sync_drive=False)
-                if facturas is None or saldos is None:
-                    raise RuntimeError("Falló el ETL luego de sincronizar Drive.")
-                ok_comp = resultados_sync.get("composicion_saldos.xlsx", False) if isinstance(resultados_sync, dict) else False
-                if not ok_comp:
-                    st.warning(
-                        "Sincronización parcial: no se pudo descargar composicion_saldos.xlsx. "
-                        "Revisá GOOGLE_DRIVE_COMPOSICION_FILE_ID y permisos del archivo para el service account."
-                    )
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-    if st.button("Reprocesar todo", type="primary"):
-        with st.spinner("Procesando Excel locales..."):
-            facturas = correr_etl(sync_drive=False)
-            _, saldos = correr_etl_cc(sync_drive=False)
-        if facturas is None:
-            st.error("ETL de facturación falló. Revisá el archivo local en data/raw/datos_facturacion.xlsx.")
-        elif saldos is None:
-            st.error("ETL de cuentas corrientes falló. Revisá el archivo local en data/raw/cc_clientes.xlsx.")
-        else:
-            st.cache_data.clear()
-            for k in ["fecha_desde", "fecha_hasta"]:
-                st.session_state.pop(k, None)
-            st.rerun()
- 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Facturación", type="primary"):
-            with st.spinner("Procesando..."):
-                facturas = correr_etl()
             if facturas is None:
-                st.error("ETL de facturación falló. Revisá el archivo local y los logs.")
+                st.error("ETL de facturación falló. Revisá el archivo local en data/raw/datos_facturacion.xlsx.")
+            elif saldos is None:
+                st.error("ETL de cuentas corrientes falló. Revisá el archivo local en data/raw/cc_clientes.xlsx.")
             else:
-                st.cache_data.clear(); st.rerun()
-    with col2:
-        if st.button("Ctas. Ctes.", type="primary"):
-            with st.spinner("Procesando..."):
-                _, saldos = correr_etl_cc()
-            if saldos is None:
-                st.error("ETL de cuentas corrientes falló. Revisá el archivo local y los logs.")
-            else:
-                st.cache_data.clear(); st.rerun()
+                st.cache_data.clear()
+                for k in ["fecha_desde", "fecha_hasta"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
 
-    st.caption(
-        f"Registros cargados · Facturación: {fact_rows:,} · CC: {cc_rows:,} · Composición: {comp_rows:,}"
-    )
- 
-    st.markdown("---")
-    st.markdown("**Empresa**")
-    empresa = st.radio("emp", ["Todas", "Local (TIARG S.A.)", "Internacional (TIARG LLC)"],
-                       label_visibility="collapsed")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Facturación", type="primary"):
+                with st.spinner("Procesando..."):
+                    facturas = correr_etl()
+                if facturas is None:
+                    st.error("ETL de facturación falló. Revisá el archivo local y los logs.")
+                else:
+                    st.cache_data.clear(); st.rerun()
+        with col2:
+            if st.button("Ctas. Ctes.", type="primary"):
+                with st.spinner("Procesando..."):
+                    _, saldos = correr_etl_cc()
+                if saldos is None:
+                    st.error("ETL de cuentas corrientes falló. Revisá el archivo local y los logs.")
+                else:
+                    st.cache_data.clear(); st.rerun()
 
-    st.markdown("---")
+        st.caption(
+            f"Registros cargados · Facturación: {fact_rows:,} · CC: {cc_rows:,} · Composición: {comp_rows:,}"
+        )
+
+        st.markdown("---")
+        st.markdown("**Empresa**")
+        empresa = st.radio("emp", ["Todas", "Local (TIARG S.A.)", "Internacional (TIARG LLC)"],
+                           label_visibility="collapsed")
+        st.markdown("---")
+    else:
+        empresa = "Todas"
 # ── Período global — justo debajo del navbar ────
 st.markdown("### Período global")
 
@@ -1146,7 +1148,8 @@ if fecha_desde > fecha_hasta:
     st.warning("Fecha desde > hasta, se invirtieron.")
     fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
 
-st.markdown("### Filtros globales")
+if _es_superusuario:
+    st.markdown("### Filtros globales")
 
 if "modo_filtro_clientes" not in st.session_state:
     modo_cli_persistido = estado_ui_global.get("modo_filtro_clientes", "Incluir seleccionados")
@@ -1174,10 +1177,9 @@ if "filtro_global_centros" not in st.session_state:
     centros_validos = set(centros_opts)
     st.session_state["filtro_global_centros"] = [c for c in centros_persistidos if c in centros_validos]
 
-abrir_bloque_mobile_stack()
-f1, f2 = st.columns(2)
-
 if _es_superusuario:
+    abrir_bloque_mobile_stack()
+    f1, f2 = st.columns(2)
     with f1:
         modo_clientes = st.radio(
             "Modo clientes",
@@ -1186,7 +1188,6 @@ if _es_superusuario:
             key="modo_filtro_clientes",
         )
         clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
-
     with f2:
         modo_centros = st.radio(
             "Modo centros",
@@ -1195,19 +1196,12 @@ if _es_superusuario:
             key="modo_filtro_centros",
         )
         centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+    cerrar_bloque_mobile_stack()
 else:
-    # Usuario regular: vista bloqueada a sus permisos, sin controles de filtro
     clientes_sel = clientes_opts
     centros_sel  = centros_opts
     modo_clientes = "Incluir seleccionados"
     modo_centros  = "Incluir seleccionados"
-    with f1:
-        _txt_cli = ", ".join(clientes_sel) if clientes_sel else "Todos"
-        st.caption(f"**Clientes:** {_txt_cli}")
-    with f2:
-        _txt_ctr = ", ".join(centros_sel) if centros_sel else "Todos"
-        st.caption(f"**Centros:** {_txt_ctr}")
-cerrar_bloque_mobile_stack()
 
 if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
     centros_set_main = set([c.strip() for c in centros_sel])
