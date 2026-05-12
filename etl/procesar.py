@@ -81,11 +81,11 @@ def procesar_facturas() -> pd.DataFrame:
                 "Importe mon. principal", "Imp. usd", "Importenetopendiente"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    df["Cliente"]           = df["Cliente"].str.strip().str.title()
-    df["Empresa"]           = df["Empresa"].str.strip()
-    df["Moneda"]            = df["Moneda"].str.strip()
-    df["Documento"]         = df["Documento"].str.strip()
-    df["Nivel 1 dimensión"] = df["Nivel 1 dimensión"].str.strip()
+    df["Cliente"]           = df["Cliente"].astype(str).str.strip().str.title()
+    df["Empresa"]           = df["Empresa"].astype(str).str.strip()
+    df["Moneda"]            = df["Moneda"].astype(str).str.strip()
+    df["Documento"]         = df["Documento"].astype(str).str.strip()
+    df["Nivel 1 dimensión"] = df["Nivel 1 dimensión"].astype(str).str.strip()
 
     df["moneda_iso"]      = df["Moneda"].map(MAPA_MONEDA).fillna(df["Moneda"])
     df["razon_social"]    = df["Empresa"].map(MAPA_EMPRESA).fillna(df["Empresa"])

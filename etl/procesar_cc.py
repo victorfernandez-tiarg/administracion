@@ -216,7 +216,8 @@ def procesar_cc() -> tuple:
     df["Fecha"]             = pd.to_datetime(df["Fecha"], dayfirst=True, errors="coerce")
     df["Fecha vencimiento"] = pd.to_datetime(df["Fecha vencimiento"], dayfirst=True, errors="coerce")
     for col in ["Debe ppal", "Haber ppal", "Saldo ppal", "Cotizacionmonedasecundaria"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     df["Cliente"]    = df["Cliente"].str.strip().str.title()
     df["Documento"]  = df["Documento"].fillna("").str.strip()
