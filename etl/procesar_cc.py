@@ -219,9 +219,12 @@ def procesar_cc() -> tuple:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    df["Cliente"]    = df["Cliente"].str.strip().str.title()
-    df["Documento"]  = df["Documento"].fillna("").str.strip()
-    df["Descripción"] = df["Descripción"].fillna("")
+    df["Cliente"]    = df["Cliente"].astype(str).str.strip().str.title()
+    df["Documento"]  = df["Documento"].fillna("").astype(str).str.strip()
+    if "Descripción" in df.columns:
+        df["Descripción"] = df["Descripción"].fillna("")
+    else:
+        df["Descripción"] = ""
     df["tipo"]       = df["Documento"].apply(tipo_movimiento)
 
     hoy = pd.Timestamp(date.today())
