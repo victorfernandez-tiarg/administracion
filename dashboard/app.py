@@ -1655,9 +1655,9 @@ if st.session_state["tab_nav"] == "CC":
 
             with st.expander(f"Facturas pendientes · {cliente_sel}", expanded=True):
                 if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
+                    _norm = lambda s: " ".join(str(s).upper().split())
                     comprobantes_cli = df_cc_comp[
-                        df_cc_comp["Cliente"].astype(str).str.strip().str.title()
-                        == cliente_sel.strip().title()
+                        df_cc_comp["Cliente"].map(_norm) == _norm(cliente_sel)
                     ].copy()
                     comprobantes_cli["saldo_abierto"] = pd.to_numeric(
                         comprobantes_cli["saldo_abierto"], errors="coerce"
