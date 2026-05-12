@@ -1020,19 +1020,16 @@ with st.sidebar:
                     if advertencias:
                         st.warning("\n".join(advertencias))
 
-                    if facturas is None or saldos is None:
-                        st.error("El ETL falló luego de cargar adjuntos. Revisá formato y logs.")
-                    else:
-                        st.cache_data.clear()
-                        comp_actualizado = load("cc_composicion")
-                        comp_procesadas = 0 if comp_actualizado is None else len(comp_actualizado)
-                        st.session_state["adjuntos_status"] = (
-                            f"Procesado desde adjuntos ({', '.join(guardados)}). "
-                            f"Registros: Facturación {len(facturas):,} · CC {len(saldos):,} · Composición {comp_procesadas:,}"
-                        )
-                        for k in ["fecha_desde", "fecha_hasta"]:
-                            st.session_state.pop(k, None)
-                        st.rerun()
+                    comp_actualizado = load("cc_composicion")
+                    comp_procesadas = 0 if comp_actualizado is None else len(comp_actualizado)
+                    st.cache_data.clear()
+                    st.session_state["adjuntos_status"] = (
+                        f"Procesado desde adjuntos ({', '.join(guardados)}). "
+                        f"Registros: Facturación {len(facturas) if facturas is not None else 0:,} · CC {len(saldos) if saldos is not None else 0:,} · Composición {comp_procesadas:,}"
+                    )
+                    for k in ["fecha_desde", "fecha_hasta"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
 
         st.markdown("---")
 

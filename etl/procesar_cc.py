@@ -326,6 +326,15 @@ def correr_etl_cc(sync_drive: bool | None = None):
         return movimientos, saldos
     except FileNotFoundError as e:
         print(f"  ✗ {e}")
+        # Intentar procesar composición de saldos de forma independiente
+        try:
+            from etl.procesar_composicion import cargar_composicion_saldos
+            hoy = pd.Timestamp(__import__("datetime").date.today())
+            comp = cargar_composicion_saldos(hoy)
+            if comp is not None:
+                print(f"  ✓ Composición procesada independientemente ({len(comp)} clientes)")
+        except Exception as e_comp:
+            print(f"  ⚠ Composición independiente también falló: {e_comp}")
         return None, None
     except Exception as e:
         print(f"  ✗ Error ETL cuentas corrientes: {e}")
