@@ -55,20 +55,21 @@ AGING_COLOR = {
 }
 AGING_ORDEN = ["Al día", "1–30 días", "31–60 días", "61–90 días", "+90 días"]
 
+# Paleta Tableau-10 — distinguible sin choque visual
 COLORES_LINEA = {
-    "ACRONIS":         "#0B132B",
-    "SW FACTORY":      "#E11D48",
-    "SF TERCERIZADO":  "#16A34A",
-    "SOPORTE":         "#D97706",
-    "OTROS SERVICIOS": "#0891B2",
-    "STAFFING":        "#7C3AED",
-    "ESPECIALES":      "#DC2626",
-    "CODEWAVE":        "#2563EB",
-    "ESTRUCTURA":      "#4B5563",
-    "RESTO":           "#111827",
-    "OTROS":           "#475569",
-    "SIN LINEA":       "#6B7280",
-    "SIN LÍNEA":       "#6B7280",
+    "ACRONIS":         "#4E79A7",   # azul acero
+    "SW FACTORY":      "#59A14F",   # verde apagado
+    "SF TERCERIZADO":  "#F28E2B",   # naranja apagado
+    "SOPORTE":         "#E15759",   # rojo apagado
+    "OTROS SERVICIOS": "#76B7B2",   # teal apagado
+    "STAFFING":        "#B07AA1",   # violeta apagado
+    "ESPECIALES":      "#FF9DA7",   # rosa suave
+    "CODEWAVE":        "#EDC948",   # dorado apagado
+    "ESTRUCTURA":      "#BAB0AC",   # gris cálido
+    "RESTO":           "#9C755F",   # marrón apagado
+    "OTROS":           "#A0CBE8",   # azul claro
+    "SIN LINEA":       "#CBD5E1",   # gris frío claro
+    "SIN LÍNEA":       "#CBD5E1",
 }
  
 THEME_CSS = f"""
@@ -1449,13 +1450,61 @@ if st.session_state["tab_nav"] == "Facturación":
             df_linea_plot["linea_plot"] = (
                 df_linea_plot["linea_negocio"].astype(str).str.strip().str.upper().replace({"": "SIN LINEA"})
             )
-            evol_l = (df_linea_plot.groupby(["mes","mes_nombre","linea_plot"])[col_linea_monto]
-                      .sum().reset_index().sort_values("mes"))
-            fig3 = px.bar(evol_l, x="mes_nombre", y=col_linea_monto,
-                          color="linea_plot", barmode="stack",
-                          color_discrete_map=COLORES_LINEA,
-                          labels={"mes_nombre":"","monto_total_ars":"Monto","linea_plot":"Línea"})
-            fig3.update_layout(margin=dict(t=5,b=5))
+            # Eje X multi-año: "Ene '25" cuando hay más de un año en el rango
+            tiene_anio = "año" in df_linea_plot.columns
+            if tiene_anio and df_linea_plot["año"].nunique() > 1:
+                df_linea_plot["_periodo"] = (
+                    df_linea_plot["año"].astype(str) + "-" + df_linea_plot["mes"].astype(str).str.zfill(2)
+                )
+                df_linea_plot["_label"] = (
+                    df_linea_plot["mes_nombre"].astype(str) + " '" + df_linea_plot["año"].astype(str).str[-2:]
+                )
+            else:
+                df_linea_plot["_periodo"] = df_linea_plot["mes"].astype(str).str.zfill(2)
+                df_linea_plot["_label"]   = df_linea_plot["mes_nombre"].astype(str)
+
+            evol_l = (
+                df_linea_plot.groupby(["_periodo", "_label", "linea_plot"])[col_linea_monto]
+                .sum().reset_index().sort_values("_periodo")
+            )
+            # Porcentaje del total por período para el tooltip
+            tot_p = evol_l.groupby("_periodo")[col_linea_monto].sum().rename("_total")
+            evol_l = evol_l.merge(tot_p, on="_periodo")
+            evol_l["_pct"]       = (evol_l[col_linea_monto] / evol_l["_total"] * 100).fillna(0).round(1).apply(lambda v: f"{v:.1f}%")
+            evol_l["_monto_fmt"] = evol_l[col_linea_monto].apply(lambda v: f"$ {v:,.0f}")
+            evol_l["_total_fmt"] = evol_l["_total"].apply(lambda v: f"$ {v:,.0f}")
+
+            # Las líneas con más volumen van al fondo del stack (más estables visualmente)
+            orden_lineas = (
+                evol_l.groupby("linea_plot")[col_linea_monto].sum()
+                .sort_values(ascending=False).index.tolist()
+            )
+
+            fig3 = px.bar(
+                evol_l, x="_label", y=col_linea_monto,
+                color="linea_plot", barmode="stack",
+                color_discrete_map=COLORES_LINEA,
+                category_orders={"linea_plot": orden_lineas},
+                custom_data=["linea_plot", "_monto_fmt", "_pct", "_total_fmt"],
+                labels={"_label": "", col_linea_monto: "ARS", "linea_plot": "Línea"},
+            )
+            fig3.update_traces(
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "Monto: %{customdata[1]}<br>"
+                    "Participación: %{customdata[2]}<br>"
+                    "Total del período: %{customdata[3]}<br>"
+                    "<extra></extra>"
+                )
+            )
+            fig3.update_layout(
+                margin=dict(t=10, b=5),
+                legend=dict(
+                    orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="left", x=0, font=dict(size=11),
+                ),
+                height=420,
+            )
             st.plotly_chart(fig3, use_container_width=True)
         else:
             st.info("Sin datos de línea de negocio.")
