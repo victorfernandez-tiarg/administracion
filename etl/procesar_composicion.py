@@ -31,6 +31,19 @@ def _normalizar_texto(texto: str) -> str:
     return base.lower()
 
 
+def normalizar_nombre_cliente(nombre: str) -> str:
+    """Normaliza nombres de clientes para comparación robusta:
+    sin acentos, sin puntuación, mayúsculas, espacios colapsados.
+    Ej: 'PAYWAY S.A.U.' y 'Payway SAU' → 'PAYWAY SAU'
+    """
+    if not nombre or str(nombre).strip().lower() in ("nan", "none", ""):
+        return ""
+    base = unicodedata.normalize("NFKD", str(nombre))
+    base = "".join(c for c in base if not unicodedata.combining(c))
+    base = re.sub(r"[^A-Za-z0-9 ]+", " ", base)
+    return " ".join(base.upper().split())
+
+
 def _resolver_columna(cols_norm: dict, candidatos: list[str]) -> str | None:
     for candidato in candidatos:
         if candidato in cols_norm:
@@ -60,24 +73,35 @@ def _parsear_importe_serie(serie: pd.Series) -> pd.Series:
 
 
 def _extraer_columnas_composicion(path: Path, hoja: str):
-    """Intenta detectar columnas clave probando varias filas de encabezado."""
-    for header_row in range(0, 8):
-        try:
-            base = pd.read_excel(path, sheet_name=hoja, header=header_row)
-        except Exception:
-            continue
+    """Detecta columnas clave probando varias filas de encabezado.
+    Lee el Excel una sola vez sin encabezado y busca la fila de headers,
+    evitando lecturas redundantes.
+    """
+    try:
+        raw = pd.read_excel(path, sheet_name=hoja, header=None)
+    except Exception:
+        return None, None, None, None, None, None, None
 
-        if base is None or base.empty:
-            continue
+    if raw is None or raw.empty:
+        return None, None, None, None, None, None, None
 
-        cols_norm = {_normalizar_texto(c): c for c in base.columns}
+    for header_row in range(min(8, len(raw))):
+        headers = raw.iloc[header_row].astype(str).tolist()
+        cols_norm = {_normalizar_texto(c): c for c in headers}
+
         col_cliente = _resolver_columna(cols_norm, ["cliente", "razon_social", "razonsocial"])
-        col_centro = _resolver_columna(cols_norm, ["centro_de_costo", "centro_costo", "centro", "linea_negocio", "nivel_1_dimension", "dim_valor"])
-        col_saldo = _resolver_columna(cols_norm, ["saldo_abierto", "saldo", "importe_pendiente", "pendiente", "deuda", "importe"])
-        col_venc = _resolver_columna(cols_norm, ["fecha_vencimiento", "vencimiento", "fecha_vto", "fecha_de_vencimiento"])
-        col_doc = _resolver_columna(cols_norm, ["documento", "comprobante", "factura", "numero_comprobante", "numero_factura"])
+        col_centro  = _resolver_columna(cols_norm, ["centro_de_costo", "centro_costo", "centro", "linea_negocio", "nivel_1_dimension", "dim_valor"])
+        col_saldo   = _resolver_columna(cols_norm, ["saldo_abierto", "saldo", "importe_pendiente", "pendiente", "deuda", "importe"])
+        col_venc    = _resolver_columna(cols_norm, ["fecha_vencimiento", "vencimiento", "fecha_vto", "fecha_de_vencimiento"])
+        col_doc     = _resolver_columna(cols_norm, ["documento", "comprobante", "factura", "numero_comprobante", "numero_factura"])
 
         if col_cliente and col_saldo:
+            # Reconstruir DataFrame con esa fila como encabezado
+            base = raw.iloc[header_row + 1:].copy()
+            base.columns = headers
+            base = base.reset_index(drop=True)
+            # Mapear nombres normalizados a los originales del DataFrame
+            col_cliente = headers[list(cols_norm.keys()).index(_normalizar_texto(col_cliente))] if col_cliente in headers else col_cliente
             return base, col_cliente, col_centro, col_saldo, col_venc, col_doc, header_row
 
     return None, None, None, None, None, None, None
@@ -130,11 +154,20 @@ def cargar_composicion_saldos(hoy: pd.Timestamp) -> pd.DataFrame | None:
             f"cliente='{col_cliente}', saldo='{col_saldo}'"
         )
 
+        # Forward-fill cliente: Finnegans exporta con celdas combinadas donde
+        # solo la primera fila del grupo tiene el nombre y el resto es NaN.
+        col_cli_serie = base[col_cliente].replace("", None).ffill()
         detalle = pd.DataFrame()
-        detalle["Cliente"] = base[col_cliente].astype(str).str.strip().str.title()
-        detalle["centro_costo"] = (
-            base[col_centro].astype(str).str.strip() if col_centro else "Sin centro"
-        )
+        detalle["Cliente"] = col_cli_serie.astype(str).str.strip().str.title()
+        detalle["cliente_norm"] = detalle["Cliente"].map(normalizar_nombre_cliente)
+
+        # Forward-fill centro_costo por la misma razón
+        if col_centro:
+            col_ctr_serie = base[col_centro].replace("", None).ffill()
+            detalle["centro_costo"] = col_ctr_serie.astype(str).str.strip()
+        else:
+            detalle["centro_costo"] = "Sin centro"
+
         detalle["saldo_abierto"] = _parsear_importe_serie(base[col_saldo])
         detalle["venc_comp"] = (
             pd.to_datetime(base[col_venc], dayfirst=True, errors="coerce") if col_venc else pd.NaT
@@ -142,7 +175,10 @@ def cargar_composicion_saldos(hoy: pd.Timestamp) -> pd.DataFrame | None:
         detalle["Documento_ref"] = (
             base[col_doc].astype(str).str.strip() if col_doc else ""
         )
-        detalle = detalle[(detalle["Cliente"] != "") & (detalle["saldo_abierto"] > 0)].copy()
+        # Excluir filas sin cliente válido (incluyendo "Nan" residual) y saldo cero
+        detalle = detalle[
+            (detalle["cliente_norm"] != "") & (detalle["saldo_abierto"] > 0)
+        ].copy()
         if not detalle.empty:
             frames.append(detalle)
 
@@ -155,13 +191,13 @@ def cargar_composicion_saldos(hoy: pd.Timestamp) -> pd.DataFrame | None:
     comp["dias_vencido_item"] = (hoy - comp["venc_comp"]).dt.days
     comp["esta_vencido"] = comp["dias_vencido_item"].fillna(0) > 0
 
-    resumen = (
-        comp.groupby("Cliente", as_index=False)
-        .agg(
-            saldo_composicion=("saldo_abierto", "sum"),
-            saldo_vencido_comp=("saldo_abierto", lambda s: s[comp.loc[s.index, "esta_vencido"]].sum()),
-        )
+    # Calcular saldo vencido por cliente sin lambda que capture el DataFrame externo
+    comp_vencido = comp[comp["esta_vencido"]].groupby("Cliente")["saldo_abierto"].sum().rename("saldo_vencido_comp")
+    resumen = comp.groupby("Cliente", as_index=False).agg(
+        saldo_composicion=("saldo_abierto", "sum"),
     )
+    resumen = resumen.merge(comp_vencido, on="Cliente", how="left")
+    resumen["saldo_vencido_comp"] = resumen["saldo_vencido_comp"].fillna(0)
     resumen["saldo_por_vencer_comp"] = (resumen["saldo_composicion"] - resumen["saldo_vencido_comp"]).clip(lower=0)
 
     vencidos = comp[comp["esta_vencido"]].copy()

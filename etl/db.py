@@ -187,11 +187,6 @@ def cargar_permisos() -> dict:
 
 
 def guardar_permisos(perms: dict) -> bool:
-    """
-    Guarda permisos.
-    - En Railway: tabla PostgreSQL (persiste entre deploys).
-    - Local: archivo JSON.
-    """
     engine = _get_engine()
     if engine is not None:
         try:
@@ -216,3 +211,63 @@ def guardar_permisos(perms: dict) -> bool:
         return True
     except Exception:
         return False
+
+
+# ── UI State ────────────────────────────────────────────────────────────────
+
+_UI_STATE_LOCAL = Path(__file__).parent.parent / "data" / "processed" / "ui_state.json"
+
+
+def guardar_ui_state(estado: dict) -> None:
+    """Guarda el estado UI global (filtros, fechas).
+    - En Railway: tabla PostgreSQL (persiste entre deploys).
+    - Local: archivo JSON.
+    """
+    engine = _get_engine()
+    if engine is not None:
+        try:
+            df_s = pd.DataFrame([{"clave": "ui_state", "valor": json.dumps(estado, ensure_ascii=False)}])
+            with engine.begin() as conn:
+                df_s.to_sql("ui_state", conn, if_exists="replace", index=False)
+            return
+        except Exception as e:
+            print(f"  ⚠ Error guardando ui_state en DB: {e}")
+
+    try:
+        _UI_STATE_LOCAL.parent.mkdir(parents=True, exist_ok=True)
+        with open(_UI_STATE_LOCAL, "w", encoding="utf-8") as f:
+            json.dump(estado, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def cargar_ui_state() -> dict:
+    """Carga el estado UI global.
+    - En Railway: desde tabla PostgreSQL.
+    - Local: desde archivo JSON.
+    """
+    engine = _get_engine()
+    if engine is not None:
+        try:
+            from sqlalchemy import text, inspect
+            insp = inspect(engine)
+            if "ui_state" in insp.get_table_names():
+                with engine.connect() as conn:
+                    df_s = pd.read_sql(text("SELECT valor FROM ui_state WHERE clave = 'ui_state'"), conn)
+                if not df_s.empty:
+                    data = json.loads(df_s.iloc[0]["valor"])
+                    if isinstance(data, dict):
+                        return data
+        except Exception as e:
+            print(f"  ⚠ Error cargando ui_state de DB: {e}")
+
+    if _UI_STATE_LOCAL.exists():
+        try:
+            with open(_UI_STATE_LOCAL, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    return {}

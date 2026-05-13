@@ -3,7 +3,8 @@
 Finnegans BI — Dashboard Híbrido
 Facturación + Cuentas Corrientes reales de Finnegans GO
 """
- 
+
+import re
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -13,23 +14,24 @@ import plotly.io as pio
 from pathlib import Path
 import os
 import io
-import json, sys
+import json
 import unicodedata
 from datetime import date, datetime
- 
-#streamlit run dashboard/app.py 
+
+#streamlit run dashboard/app.py
+import sys
 sys.path.append(str(Path(__file__).parent.parent))
-from etl.procesar    import correr_etl
+from etl.procesar    import correr_etl, NOTAS_CREDITO
 from etl.procesar_cc import correr_etl_cc, calcular_aging
 from etl.sync_drive  import sincronizar
-from etl.db          import cargar as db_cargar, cargar_meta as db_cargar_meta, cargar_permisos as db_cargar_permisos, guardar_permisos as db_guardar_permisos
+from etl.db          import cargar as db_cargar, cargar_meta as db_cargar_meta, cargar_permisos as db_cargar_permisos, guardar_permisos as db_guardar_permisos, guardar_ui_state as db_guardar_ui_state, cargar_ui_state as db_cargar_ui_state
+from etl.procesar_composicion import normalizar_nombre_cliente
  
  
  
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 ASSETS_DIR = Path(__file__).parent / "assets"
-UI_STATE_PATH = PROCESSED_DIR / "ui_state.json"
  
 st.set_page_config(page_title="tiarg", page_icon=str(ASSETS_DIR / "logo_empresa.png"), layout="wide")
  
@@ -52,7 +54,7 @@ AGING_COLOR = {
     "+90 días":    C_ROJO,
 }
 AGING_ORDEN = ["Al día", "1–30 días", "31–60 días", "61–90 días", "+90 días"]
- 
+
 COLORES_LINEA = {
     "ACRONIS":         "#0B132B",
     "SW FACTORY":      "#E11D48",
@@ -69,11 +71,6 @@ COLORES_LINEA = {
     "SIN LÍNEA":       "#6B7280",
 }
  
-NOTAS_CREDITO = [
-    "Nota de Crédito de Ventas Electrónica",
-    "FCE Nota de Crédito de Ventas Electrónica MIPymes",
-]
-
 THEME_CSS = f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Sora:wght@600;700;800&display=swap');
@@ -434,6 +431,27 @@ def _check_credentials(username: str, password: str) -> bool:
         return False
     return expected == _hash_password(password, salt)
 
+
+_LOGIN_MAX_ATTEMPTS = 5
+_LOGIN_LOCKOUT_SECONDS = 300  # 5 minutos
+
+def _login_bloqueado() -> bool:
+    """Devuelve True si el usuario está en período de bloqueo por intentos fallidos."""
+    intentos = st.session_state.get("_login_intentos", 0)
+    ultimo_fallo = st.session_state.get("_login_ultimo_fallo", 0)
+    if intentos >= _LOGIN_MAX_ATTEMPTS:
+        transcurrido = datetime.now().timestamp() - ultimo_fallo
+        if transcurrido < _LOGIN_LOCKOUT_SECONDS:
+            return True
+        # Resetear contador después del lockout
+        st.session_state["_login_intentos"] = 0
+    return False
+
+
+def _registrar_fallo_login():
+    st.session_state["_login_intentos"] = st.session_state.get("_login_intentos", 0) + 1
+    st.session_state["_login_ultimo_fallo"] = datetime.now().timestamp()
+
 def _login_page():
     st.markdown("""
     <style>
@@ -479,12 +497,18 @@ def _login_page():
             submitted = st.form_submit_button("Ingresar", use_container_width=True)
 
         if submitted:
-            if _check_credentials(usuario.strip(), password):
+            if _login_bloqueado():
+                st.error("Demasiados intentos fallidos. Intentá de nuevo en 5 minutos.")
+            elif _check_credentials(usuario.strip(), password):
                 st.session_state["authenticated"] = True
                 st.session_state["username"] = usuario.strip()
+                st.session_state.pop("_login_intentos", None)
+                st.session_state.pop("_login_ultimo_fallo", None)
                 st.rerun()
             else:
-                st.error("Usuario o contraseña incorrectos.")
+                _registrar_fallo_login()
+                intentos_restantes = max(0, _LOGIN_MAX_ATTEMPTS - st.session_state.get("_login_intentos", 0))
+                st.error(f"Usuario o contraseña incorrectos. Intentos restantes: {intentos_restantes}")
 
 # Verificar autenticación antes de mostrar cualquier cosa
 if not st.session_state.get("authenticated"):
@@ -492,8 +516,6 @@ if not st.session_state.get("authenticated"):
     st.stop()
 
 # ── Permisos ───────────────────────────────────────
-_PERMISOS_PATH = Path(__file__).parent / "permisos.json"
-
 def _cargar_permisos() -> dict:
     return db_cargar_permisos()
 
@@ -511,7 +533,7 @@ _centros_perm_modo  = _perms_usuario.get("centros_modo",  "Excluir")
 _tabs_perm          = [t.strip()         for t in _perms_usuario.get("tabs",     [])]
 
 # ── Helpers ────────────────────────────────────────
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def load(nombre):
     return db_cargar(nombre)
  
@@ -530,24 +552,11 @@ def cerrar_bloque_mobile_stack():
 
 
 def cargar_estado_ui_global():
-    if not UI_STATE_PATH.exists():
-        return {}
-    try:
-        with open(UI_STATE_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
+    return db_cargar_ui_state()
 
 
 def guardar_estado_ui_global(estado):
-    try:
-        UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(UI_STATE_PATH, "w", encoding="utf-8") as f:
-            json.dump(estado, f, ensure_ascii=False, indent=2)
-    except Exception:
-        # Si no se puede persistir estado, la app debe seguir funcionando.
-        pass
+    db_guardar_ui_state(estado)
 
 
 def parsear_fecha_iso(valor):
@@ -656,16 +665,16 @@ def calcular_kpis_financieros(df_fact: pd.DataFrame, df_cc: pd.DataFrame) -> dic
     if df_cc is None or df_cc.empty:
         return kpis
 
-    saldo_comp = (
-        pd.to_numeric(df_cc.get("saldo_composicion", 0), errors="coerce").fillna(0)
-        if "saldo_composicion" in df_cc.columns
-        else pd.Series(0, index=df_cc.index)
-    )
-    saldo_actual = pd.to_numeric(df_cc.get("saldo_actual", 0), errors="coerce").fillna(0)
-    saldo_deuda = saldo_comp.where(saldo_comp > 0, saldo_actual)
+    def _cn(col: str) -> pd.Series:
+        if col in df_cc.columns:
+            return pd.to_numeric(df_cc[col], errors="coerce").fillna(0)
+        return pd.Series(0, index=df_cc.index)
+
+    saldo_comp  = _cn("saldo_composicion")
+    saldo_deuda = saldo_comp.where(saldo_comp > 0, _cn("saldo_actual"))
 
     deuda_total = saldo_deuda.sum()
-    saldo_vencido = pd.to_numeric(df_cc.get("saldo_vencido", 0), errors="coerce").fillna(0).sum()
+    saldo_vencido = _cn("saldo_vencido").sum()
     kpis["overdue_ratio"] = (saldo_vencido / deuda_total * 100) if deuda_total > 0 else 0
 
     top5 = (
@@ -765,8 +774,7 @@ def auto_actualizar_desde_archivos_locales():
 datasets_actualizados = auto_actualizar_desde_archivos_locales()
 if datasets_actualizados:
     st.cache_data.clear()
-auto_sync_drive = os.getenv("AUTO_SYNC_DRIVE", "true").strip().lower() in {"1", "true", "yes", "si"}
- 
+
 # ── Cargar datos (antes del sidebar para calcular rango) ──
 df_fact_raw = load("facturas")
 df_saldos   = load("cc_saldos")
@@ -843,8 +851,12 @@ with st.sidebar:
 
     # Usuario activo + cerrar sesión
     username_display = st.session_state.get("username", "")
+    # Escapar para evitar XSS al inyectar en HTML
+    username_safe = (username_display
+                     .replace("&", "&amp;").replace("<", "&lt;")
+                     .replace(">", "&gt;").replace('"', "&quot;"))
     st.markdown(
-        f'<div style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.4rem;">👤 {username_display}</div>',
+        f'<div style="font-size:0.78rem;color:#94a3b8;margin-bottom:0.4rem;">👤 {username_safe}</div>',
         unsafe_allow_html=True,
     )
     if st.button("Cerrar sesión", key="btn_logout", use_container_width=True):
@@ -1256,11 +1268,6 @@ if not sin_fact:
 else:
     df = df_ars = df_usd = df_sa = df_llc = pd.DataFrame()
     color_p = C_TOTAL
- 
-# ── Filtrar CC por empresa si aplica ───────────────
-if not sin_cc and empresa != "Todas":
-    # CC no tiene campo empresa en el export, queda sin filtro de empresa
-    pass
 
 if not sin_fact and clientes_sel:
     clientes_set = set([c.strip().title() for c in clientes_sel])
@@ -1330,61 +1337,48 @@ if not sin_cc:
 if not sin_fact:
     sin_fact = df.empty
 
+
+def _col_num(df: pd.DataFrame, col: str) -> pd.Series:
+    """Lee una columna numérica de un DataFrame, devuelve ceros si no existe."""
+    if col in df.columns:
+        return pd.to_numeric(df[col], errors="coerce").fillna(0)
+    return pd.Series(0, index=df.index)
+
+
 if not sin_cc:
-    saldo_comp = (
-        pd.to_numeric(df_saldos.get("saldo_composicion", 0), errors="coerce").fillna(0)
-        if "saldo_composicion" in df_saldos.columns
-        else pd.Series(0, index=df_saldos.index)
-    )
-    saldo_actual = pd.to_numeric(df_saldos.get("saldo_actual", 0), errors="coerce").fillna(0)
+    saldo_comp   = _col_num(df_saldos, "saldo_composicion")
+    saldo_actual = _col_num(df_saldos, "saldo_actual")
     df_saldos["saldo_deuda"] = saldo_comp.where(saldo_comp > 0, saldo_actual)
 
-    saldo_vencido_comp = (
-        pd.to_numeric(df_saldos.get("saldo_vencido_comp", 0), errors="coerce").fillna(0)
-        if "saldo_vencido_comp" in df_saldos.columns
-        else pd.Series(0, index=df_saldos.index)
-    )
-    saldo_vencido_base = pd.to_numeric(df_saldos.get("saldo_vencido", 0), errors="coerce").fillna(0)
-    df_saldos["saldo_vencido_base"] = saldo_vencido_comp.where(saldo_comp > 0, saldo_vencido_base)
-
-    saldo_por_vencer_comp = (
-        pd.to_numeric(df_saldos.get("saldo_por_vencer_comp", 0), errors="coerce").fillna(0)
-        if "saldo_por_vencer_comp" in df_saldos.columns
-        else pd.Series(0, index=df_saldos.index)
-    )
-    saldo_por_vencer_base = pd.to_numeric(df_saldos.get("saldo_por_vencer", 0), errors="coerce").fillna(0)
-    df_saldos["saldo_por_vencer_base"] = saldo_por_vencer_comp.where(saldo_comp > 0, saldo_por_vencer_base)
-
-    dias_vencido_comp = (
-        pd.to_numeric(df_saldos.get("dias_vencido_comp", 0), errors="coerce").fillna(0)
-        if "dias_vencido_comp" in df_saldos.columns
-        else pd.Series(0, index=df_saldos.index)
-    )
-    dias_vencido_base = pd.to_numeric(df_saldos.get("dias_vencido", 0), errors="coerce").fillna(0)
-    df_saldos["dias_vencido_base"] = dias_vencido_comp.where(saldo_comp > 0, dias_vencido_base).astype(int)
-
-    dias_vencido_max_comp = (
-        pd.to_numeric(df_saldos.get("dias_vencido_max_comp", 0), errors="coerce").fillna(0)
-        if "dias_vencido_max_comp" in df_saldos.columns
-        else pd.Series(0, index=df_saldos.index)
-    )
-    dias_vencido_max_base = pd.to_numeric(df_saldos.get("dias_vencido_max", 0), errors="coerce").fillna(0)
-    df_saldos["dias_vencido_max_base"] = dias_vencido_max_comp.where(saldo_comp > 0, dias_vencido_max_base).astype(int)
+    df_saldos["saldo_vencido_base"]    = _col_num(df_saldos, "saldo_vencido_comp").where(
+        saldo_comp > 0, _col_num(df_saldos, "saldo_vencido"))
+    df_saldos["saldo_por_vencer_base"] = _col_num(df_saldos, "saldo_por_vencer_comp").where(
+        saldo_comp > 0, _col_num(df_saldos, "saldo_por_vencer"))
+    df_saldos["dias_vencido_base"]     = _col_num(df_saldos, "dias_vencido_comp").where(
+        saldo_comp > 0, _col_num(df_saldos, "dias_vencido")).astype(int)
+    df_saldos["dias_vencido_max_base"] = _col_num(df_saldos, "dias_vencido_max_comp").where(
+        saldo_comp > 0, _col_num(df_saldos, "dias_vencido_max")).astype(int)
 
     df_saldos["aging_base"] = df_saldos["dias_vencido_base"].apply(calcular_aging)
     df_saldos["fuente_cc_base"] = np.where(saldo_comp > 0, "composicion", "cc_movimientos")
 
-col_deuda_cc = "saldo_deuda" if (not sin_cc and "saldo_deuda" in df_saldos.columns) else "saldo_actual"
-col_vencida_cc = "saldo_vencido_base" if (not sin_cc and "saldo_vencido_base" in df_saldos.columns) else "saldo_vencido"
-col_por_vencer_cc = "saldo_por_vencer_base" if (not sin_cc and "saldo_por_vencer_base" in df_saldos.columns) else "saldo_por_vencer"
-col_dias_cc = "dias_vencido_base" if (not sin_cc and "dias_vencido_base" in df_saldos.columns) else "dias_vencido"
-col_dias_max_cc = "dias_vencido_max_base" if (not sin_cc and "dias_vencido_max_base" in df_saldos.columns) else "dias_vencido_max"
-col_aging_cc = "aging_base" if (not sin_cc and "aging_base" in df_saldos.columns) else "aging"
+def _col_cc(preferred: str, fallback: str) -> str:
+    """Devuelve el nombre de columna preferido si existe en df_saldos, sino el fallback."""
+    if not sin_cc and preferred in df_saldos.columns:
+        return preferred
+    return fallback
+
+col_deuda_cc      = _col_cc("saldo_deuda",          "saldo_actual")
+col_vencida_cc    = _col_cc("saldo_vencido_base",    "saldo_vencido")
+col_por_vencer_cc = _col_cc("saldo_por_vencer_base", "saldo_por_vencer")
+col_dias_cc       = _col_cc("dias_vencido_base",     "dias_vencido")
+col_dias_max_cc   = _col_cc("dias_vencido_max_base", "dias_vencido_max")
+col_aging_cc      = _col_cc("aging_base",            "aging")
 
 # ═══════════════════════════════════════════════════
 # NAVEGACIÓN POR SECCIONES (controlada desde sidebar)
 # ═══════════════════════════════════════════════════
- 
+
 # ══════════════════════════════════════════════
 # SECCIÓN 1 — FACTURACIÓN
 # ══════════════════════════════════════════════
@@ -1655,10 +1649,13 @@ if st.session_state["tab_nav"] == "CC":
 
             with st.expander(f"Facturas pendientes · {cliente_sel}", expanded=True):
                 if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
-                    _norm = lambda s: " ".join(str(s).upper().split())
-                    comprobantes_cli = df_cc_comp[
-                        df_cc_comp["Cliente"].map(_norm) == _norm(cliente_sel)
-                    ].copy()
+                    _norm_sel = normalizar_nombre_cliente(cliente_sel)
+                    if "cliente_norm" in df_cc_comp.columns:
+                        comprobantes_cli = df_cc_comp[df_cc_comp["cliente_norm"] == _norm_sel].copy()
+                    else:
+                        comprobantes_cli = df_cc_comp[
+                            df_cc_comp["Cliente"].map(normalizar_nombre_cliente) == _norm_sel
+                        ].copy()
                     comprobantes_cli["saldo_abierto"] = pd.to_numeric(
                         comprobantes_cli["saldo_abierto"], errors="coerce"
                     ).fillna(0)

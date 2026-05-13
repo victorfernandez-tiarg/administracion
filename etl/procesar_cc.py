@@ -328,8 +328,7 @@ def correr_etl_cc(sync_drive: bool | None = None):
         print(f"  ✗ {e}")
         # Intentar procesar composición de saldos de forma independiente
         try:
-            from etl.procesar_composicion import cargar_composicion_saldos
-            hoy = pd.Timestamp(__import__("datetime").date.today())
+            hoy = pd.Timestamp(date.today())
             comp = cargar_composicion_saldos(hoy)
             if comp is not None:
                 print(f"  ✓ Composición procesada independientemente ({len(comp)} clientes)")
