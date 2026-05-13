@@ -1107,9 +1107,7 @@ with st.sidebar:
         st.markdown("---")
     else:
         empresa = "Todas"
-# ── Período global — justo debajo del navbar ────
-st.markdown("### Período global")
-
+# ── Período global + Filtros ────
 estado_ui_global = cargar_estado_ui_global()
 
 # Inicializar session_state con valores válidos dentro del rango disponible
@@ -1127,38 +1125,38 @@ if fecha_hasta_persistida is not None:
 if "fecha_desde" not in st.session_state or not isinstance(st.session_state["fecha_desde"], date):
     st.session_state["fecha_desde"] = fecha_desde_persistida or fecha_desde_default
 else:
-    # Asegurar que el valor está dentro del rango disponible
     st.session_state["fecha_desde"] = min(max(st.session_state["fecha_desde"], fecha_min_default), fecha_max_default)
 
 if "fecha_hasta" not in st.session_state or not isinstance(st.session_state["fecha_hasta"], date):
     st.session_state["fecha_hasta"] = fecha_hasta_persistida or fecha_hasta_default
 else:
-    # Asegurar que el valor está dentro del rango disponible
     st.session_state["fecha_hasta"] = min(max(st.session_state["fecha_hasta"], fecha_min_default), fecha_max_default)
 
-pc1, pc2 = st.columns(2)
-with pc1:
-    fecha_desde = st.date_input(
-        "Desde",
-        min_value=fecha_min_default,
-        max_value=fecha_max_default,
-        format="DD/MM/YYYY",
-        key="fecha_desde",
-    )
-with pc2:
-    fecha_hasta = st.date_input(
-        "Hasta",
-        min_value=fecha_min_default,
-        max_value=fecha_max_default,
-        format="DD/MM/YYYY",
-        key="fecha_hasta",
-    )
-if fecha_desde > fecha_hasta:
-    st.warning("Fecha desde > hasta, se invirtieron.")
-    fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
+# Fallback activo cuando el expander está cerrado
+fecha_desde = st.session_state["fecha_desde"]
+fecha_hasta = st.session_state["fecha_hasta"]
 
-if _es_superusuario:
-    st.markdown("### Filtros globales")
+with st.expander("📅 Período de análisis", expanded=False):
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        fecha_desde = st.date_input(
+            "Desde",
+            min_value=fecha_min_default,
+            max_value=fecha_max_default,
+            format="DD/MM/YYYY",
+            key="fecha_desde",
+        )
+    with pc2:
+        fecha_hasta = st.date_input(
+            "Hasta",
+            min_value=fecha_min_default,
+            max_value=fecha_max_default,
+            format="DD/MM/YYYY",
+            key="fecha_hasta",
+        )
+    if fecha_desde > fecha_hasta:
+        st.warning("Fecha desde > hasta, se invirtieron.")
+        fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
 
 if "modo_filtro_clientes" not in st.session_state:
     modo_cli_persistido = estado_ui_global.get("modo_filtro_clientes", "Incluir seleccionados")
@@ -1187,46 +1185,52 @@ if "filtro_global_centros" not in st.session_state:
     st.session_state["filtro_global_centros"] = [c for c in centros_persistidos if c in centros_validos]
 
 if _es_superusuario:
-    abrir_bloque_mobile_stack()
-    f1, f2 = st.columns(2)
-    with f1:
-        modo_clientes = st.radio(
-            "Modo clientes",
-            ["Incluir seleccionados", "Excluir seleccionados"],
-            horizontal=True,
-            key="modo_filtro_clientes",
-        )
-        clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
-    with f2:
-        modo_centros = st.radio(
-            "Modo centros",
-            ["Incluir seleccionados", "Excluir seleccionados"],
-            horizontal=True,
-            key="modo_filtro_centros",
-        )
-        centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
-    cerrar_bloque_mobile_stack()
+    # Fallback activo cuando el expander está cerrado
+    clientes_sel  = list(st.session_state.get("filtro_global_clientes", []))
+    centros_sel   = list(st.session_state.get("filtro_global_centros", []))
+    modo_clientes = st.session_state.get("modo_filtro_clientes", "Incluir seleccionados")
+    modo_centros  = st.session_state.get("modo_filtro_centros", "Incluir seleccionados")
+
+    with st.expander("🔍 Filtros de clientes y centros", expanded=False):
+        abrir_bloque_mobile_stack()
+        f1, f2 = st.columns(2)
+        with f1:
+            modo_clientes = st.radio(
+                "Modo clientes",
+                ["Incluir seleccionados", "Excluir seleccionados"],
+                horizontal=True,
+                key="modo_filtro_clientes",
+            )
+            clientes_sel = st.multiselect("Clientes", clientes_opts, key="filtro_global_clientes")
+        with f2:
+            modo_centros = st.radio(
+                "Modo centros",
+                ["Incluir seleccionados", "Excluir seleccionados"],
+                horizontal=True,
+                key="modo_filtro_centros",
+            )
+            centros_sel = st.multiselect("Centros de costo", centros_opts, key="filtro_global_centros")
+        if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
+            centros_set_main = set([c.strip() for c in centros_sel])
+            mask_rel = df_fact_raw["linea_negocio"].astype(str).str.strip().isin(centros_set_main)
+            if modo_centros == "Excluir seleccionados":
+                mask_rel = ~mask_rel
+            clientes_rel = (
+                df_fact_raw.loc[mask_rel, "cliente"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .str.title()
+                .unique()
+                .tolist()
+            )
+            st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
+        cerrar_bloque_mobile_stack()
 else:
     clientes_sel = clientes_opts
     centros_sel  = centros_opts
     modo_clientes = "Incluir seleccionados"
     modo_centros  = "Incluir seleccionados"
-
-if centros_sel and not sin_fact and "linea_negocio" in df_fact_raw.columns and "cliente" in df_fact_raw.columns:
-    centros_set_main = set([c.strip() for c in centros_sel])
-    mask_rel = df_fact_raw["linea_negocio"].astype(str).str.strip().isin(centros_set_main)
-    if modo_centros == "Excluir seleccionados":
-        mask_rel = ~mask_rel
-    clientes_rel = (
-        df_fact_raw.loc[mask_rel, "cliente"]
-        .dropna()
-        .astype(str)
-        .str.strip()
-        .str.title()
-        .unique()
-        .tolist()
-    )
-    st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
 
 estado_ui_actual = {
     "fecha_desde": fecha_desde.isoformat(),
