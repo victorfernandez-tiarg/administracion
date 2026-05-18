@@ -1604,11 +1604,20 @@ if st.session_state["tab_nav"] == "Composición de saldos":
         top10_tabla["Saldo_fmt"]    = top10_tabla["Saldo"].map(lambda v: f"$ {v:,.0f}")
         top10_tabla["Vencido_fmt"]  = top10_tabla["Vencido"].map(lambda v: f"$ {v:,.0f}")
 
+        _fila_total = pd.DataFrame([{
+            "Cliente":      "TOTAL",
+            "Saldo_fmt":    f"$ {top10_tabla['Saldo'].sum():,.0f}",
+            "Vencido_fmt":  f"$ {top10_tabla['Vencido'].sum():,.0f}",
+            "Días vencido": "",
+            "Estado":       "",
+        }])
+        _display_top10 = pd.concat([
+            top10_tabla[["Cliente", "Saldo_fmt", "Vencido_fmt", "Días vencido", "Estado"]],
+            _fila_total,
+        ], ignore_index=True)
+
         evento_top10 = st.dataframe(
-            top10_tabla[["Cliente", "Saldo_fmt", "Vencido_fmt", "Días vencido", "Estado"]].rename(columns={
-                "Saldo_fmt": "Saldo",
-                "Vencido_fmt": "Vencido",
-            }),
+            _display_top10.rename(columns={"Saldo_fmt": "Saldo", "Vencido_fmt": "Vencido"}),
             use_container_width=True,
             hide_index=True,
             on_select="rerun",
@@ -1616,7 +1625,7 @@ if st.session_state["tab_nav"] == "Composición de saldos":
         )
 
         if evento_top10.selection["rows"]:
-            filas_sel    = evento_top10.selection["rows"]
+            filas_sel    = [i for i in evento_top10.selection["rows"] if i < len(top10_tabla)]
             clientes_sel = [top10_tabla.iloc[i]["Cliente"] for i in filas_sel]
 
             if len(clientes_sel) > 1:
