@@ -1645,52 +1645,62 @@ if st.session_state["tab_nav"] == "Composición de saldos":
                 cs1.metric(f"Saldo combinado ({len(clientes_sel)} clientes)", f"$ {saldo_sel:,.0f}")
                 cs2.metric("Vencido combinado", f"$ {vencido_sel:,.0f}")
 
-            for cliente_sel in clientes_sel:
-                with st.expander(f"Facturas pendientes · {cliente_sel}", expanded=len(clientes_sel) == 1):
-                    if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
+            titulo_exp = f"Facturas pendientes · {clientes_sel[0]}" if len(clientes_sel) == 1 else f"Facturas pendientes · {len(clientes_sel)} clientes seleccionados"
+            with st.expander(titulo_exp, expanded=True):
+                if not sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
+                    # Recolectar comprobantes de todos los clientes seleccionados
+                    fragmentos = []
+                    for cliente_sel in clientes_sel:
                         _norm_sel = normalizar_nombre_cliente(cliente_sel)
                         if "cliente_norm" in df_cc_comp.columns:
-                            comprobantes_cli = df_cc_comp[df_cc_comp["cliente_norm"] == _norm_sel].copy()
+                            _comp = df_cc_comp[df_cc_comp["cliente_norm"] == _norm_sel].copy()
                         else:
-                            comprobantes_cli = df_cc_comp[
+                            _comp = df_cc_comp[
                                 df_cc_comp["Cliente"].map(normalizar_nombre_cliente) == _norm_sel
                             ].copy()
+                        _comp["_cliente_sel"] = cliente_sel
+                        fragmentos.append(_comp)
+
+                    comprobantes_cli = pd.concat(fragmentos, ignore_index=True) if fragmentos else pd.DataFrame()
+                    if not comprobantes_cli.empty:
                         comprobantes_cli["saldo_abierto"] = pd.to_numeric(
                             comprobantes_cli["saldo_abierto"], errors="coerce"
                         ).fillna(0)
                         comprobantes_cli = comprobantes_cli[comprobantes_cli["saldo_abierto"] > 0].copy()
 
-                        if comprobantes_cli.empty:
-                            st.success(f"Sin saldo pendiente para {cliente_sel}.")
-                        else:
-                            comp_tabla = pd.DataFrame()
-                            if "Documento_ref" in comprobantes_cli.columns:
-                                comp_tabla["Comprobante"] = comprobantes_cli["Documento_ref"].astype(str).values
-                            if "centro_costo" in comprobantes_cli.columns:
-                                comp_tabla["Centro"] = comprobantes_cli["centro_costo"].astype(str).values
-                            if "venc_comp" in comprobantes_cli.columns:
-                                comp_tabla["Vencimiento"] = pd.to_datetime(
-                                    comprobantes_cli["venc_comp"], errors="coerce"
-                                ).dt.strftime("%d/%m/%Y").values
-                            if "dias_vencido_item" in comprobantes_cli.columns:
-                                dias = pd.to_numeric(comprobantes_cli["dias_vencido_item"], errors="coerce").fillna(0)
-                                comp_tabla["Días vencido"] = dias.astype(int).values
-                                comp_tabla["Estado"] = np.where(
-                                    dias > 90, "🔴 +90 días",
-                                    np.where(dias > 60, "🟠 61–90 días",
-                                    np.where(dias > 30, "🟡 31–60 días",
-                                    np.where(dias > 0,  "🟢 1–30 días", "✅ Al día")))
-                                )
-                            comp_tabla["Saldo"] = comprobantes_cli["saldo_abierto"].map(lambda v: f"$ {v:,.0f}").values
-                            total_pend = comprobantes_cli["saldo_abierto"].sum()
-                            st.caption(f"{len(comprobantes_cli)} comprobantes pendientes · Total: **$ {total_pend:,.0f}**")
-                            st.dataframe(
-                                comp_tabla.sort_values("Días vencido", ascending=False) if "Días vencido" in comp_tabla.columns else comp_tabla,
-                                use_container_width=True,
-                                hide_index=True,
-                            )
+                    if comprobantes_cli.empty:
+                        st.success("Sin saldo pendiente para los clientes seleccionados.")
                     else:
-                        st.info("Para ver el detalle de facturas pendientes cargá el archivo de composición de saldos.")
+                        comp_tabla = pd.DataFrame()
+                        if len(clientes_sel) > 1:
+                            comp_tabla["Cliente"] = comprobantes_cli["_cliente_sel"].values
+                        if "Documento_ref" in comprobantes_cli.columns:
+                            comp_tabla["Comprobante"] = comprobantes_cli["Documento_ref"].astype(str).values
+                        if "centro_costo" in comprobantes_cli.columns:
+                            comp_tabla["Centro"] = comprobantes_cli["centro_costo"].astype(str).values
+                        if "venc_comp" in comprobantes_cli.columns:
+                            comp_tabla["Vencimiento"] = pd.to_datetime(
+                                comprobantes_cli["venc_comp"], errors="coerce"
+                            ).dt.strftime("%d/%m/%Y").values
+                        if "dias_vencido_item" in comprobantes_cli.columns:
+                            dias = pd.to_numeric(comprobantes_cli["dias_vencido_item"], errors="coerce").fillna(0)
+                            comp_tabla["Días vencido"] = dias.astype(int).values
+                            comp_tabla["Estado"] = np.where(
+                                dias > 90, "🔴 +90 días",
+                                np.where(dias > 60, "🟠 61–90 días",
+                                np.where(dias > 30, "🟡 31–60 días",
+                                np.where(dias > 0,  "🟢 1–30 días", "✅ Al día")))
+                            )
+                        comp_tabla["Saldo"] = comprobantes_cli["saldo_abierto"].map(lambda v: f"$ {v:,.0f}").values
+                        total_pend = comprobantes_cli["saldo_abierto"].sum()
+                        st.caption(f"{len(comprobantes_cli)} comprobantes pendientes · Total: **$ {total_pend:,.0f}**")
+                        st.dataframe(
+                            comp_tabla.sort_values("Días vencido", ascending=False) if "Días vencido" in comp_tabla.columns else comp_tabla,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                else:
+                    st.info("Para ver el detalle de facturas pendientes cargá el archivo de composición de saldos.")
 
         st.markdown("---")
 
