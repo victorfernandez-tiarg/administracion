@@ -655,6 +655,46 @@ def _archivo_composicion_raw() -> Path | None:
     return None
 
 
+@st.cache_data(show_spinner=False)
+def _derivar_comp_fallback(df_mov: pd.DataFrame, df_saldos_base: pd.DataFrame) -> pd.DataFrame:
+    """Deriva comprobantes pendientes desde cc_movimientos cuando cc_composicion no existe.
+    Se cachea globalmente: solo recalcula si cambian los datos fuente."""
+    if df_mov is None or df_mov.empty or "tipo" not in df_mov.columns:
+        return pd.DataFrame()
+    if df_saldos_base is None or df_saldos_base.empty or "saldo_actual" not in df_saldos_base.columns:
+        return pd.DataFrame()
+    hoy = pd.Timestamp(date.today())
+    cargos = df_mov[df_mov["tipo"] == "Factura/Cargo"].copy()
+    cargos["__imp"] = pd.to_numeric(cargos["Debe ppal"], errors="coerce").fillna(0)
+    cargos = cargos[cargos["__imp"] > 0]
+    if cargos.empty:
+        return pd.DataFrame()
+    cargos["__fv"] = pd.to_datetime(cargos["Fecha vencimiento"], errors="coerce") if "Fecha vencimiento" in cargos.columns else pd.NaT
+    cargos["__fm"] = pd.to_datetime(cargos["Fecha"], errors="coerce") if "Fecha" in cargos.columns else pd.NaT
+    filas = []
+    for row in df_saldos_base[df_saldos_base["saldo_actual"] > 0][["Cliente", "saldo_actual"]].itertuples(index=False):
+        sr = max(float(row.saldo_actual), 0.0)
+        if sr <= 0:
+            continue
+        cc = cargos[cargos["Cliente"] == row.Cliente].sort_values(["__fv", "__fm"], ascending=[False, False])
+        for _, c in cc.iterrows():
+            if sr <= 0:
+                break
+            t = min(float(c["__imp"]), sr)
+            sr -= t
+            fv = c["__fv"]
+            filas.append({
+                "Cliente":           row.Cliente,
+                "cliente_norm":      normalizar_nombre_cliente(row.Cliente),
+                "centro_costo":      "Sin centro",
+                "saldo_abierto":     round(t, 2),
+                "venc_comp":         fv,
+                "Documento_ref":     str(c.get("Documento", "")),
+                "dias_vencido_item": int((hoy - fv).days) if pd.notna(fv) else 0,
+            })
+    return pd.DataFrame(filas) if filas else pd.DataFrame()
+
+
 def calcular_kpis_financieros(df_fact: pd.DataFrame, df_cc: pd.DataFrame) -> dict:
     kpis = {
         "dso": 0.0,
@@ -781,10 +821,12 @@ df_fact_raw = load("facturas")
 df_saldos   = load("cc_saldos")
 df_cc_mov   = load("cc_movimientos")
 df_cc_comp  = load("cc_composicion")
+if (df_cc_comp is None or df_cc_comp.empty) and df_cc_mov is not None and df_saldos is not None:
+    df_cc_comp = _derivar_comp_fallback(df_cc_mov, df_saldos)
  
 sin_fact = df_fact_raw is None
 sin_cc   = df_saldos is None
-sin_comp = df_cc_comp is None
+sin_comp = df_cc_comp is None or df_cc_comp.empty
  
 # Calcular rango de fechas disponible en los datos
 fecha_min_default = date(2024, 1, 1)
