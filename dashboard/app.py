@@ -911,7 +911,7 @@ with st.sidebar:
     """
     st.markdown(nav_css, unsafe_allow_html=True)
 
-    opciones_nav = ["Facturación", "CC", "Clientes"]
+    opciones_nav = ["Facturación", "Composición de saldos", "Cuenta Corriente", "Clientes"]
     if _es_superusuario:
         opciones_nav.append("Admin")
     # Filtrar tabs según permisos (vacío = todas)
@@ -1561,7 +1561,7 @@ if st.session_state["tab_nav"] == "Facturación":
 # ══════════════════════════════════════════════
 # SECCIÓN 2 — CUENTAS CORRIENTES
 # ══════════════════════════════════════════════
-if st.session_state["tab_nav"] == "CC":
+if st.session_state["tab_nav"] == "Composición de saldos":
     if sin_cc:
         st.info("Sin datos de CC. Colocá cc_clientes.xlsx en data/raw/ y actualizá.")
     else:
@@ -1571,87 +1571,6 @@ if st.session_state["tab_nav"] == "CC":
         for c in [col_deuda_cc, col_vencida_cc, col_dias_cc]:
             if c in df_cc_view.columns:
                 df_cc_view[c] = pd.to_numeric(df_cc_view[c], errors="coerce").fillna(0)
-
-        # ── Composición de saldos (movimientos Debe/Haber) ───────────────
-        st.markdown("#### Composición de saldos")
-        if df_cc_mov is None or df_cc_mov.empty:
-            st.info("Sin datos de movimientos. Cargá cc_clientes.xlsx y actualizá.")
-        else:
-            clientes_mov = sorted(
-                df_cc_mov["Cliente"].dropna().astype(str).str.strip().str.title().unique().tolist()
-            )
-            cliente_mov_sel = st.selectbox(
-                "Cliente",
-                options=[""] + clientes_mov,
-                format_func=lambda x: "— elegí un cliente para ver el detalle —" if x == "" else x,
-                key="mov_cliente_sel",
-            )
-
-            if cliente_mov_sel:
-                mov_cli = df_cc_mov[
-                    df_cc_mov["Cliente"].astype(str).str.strip().str.title()
-                    == cliente_mov_sel.strip().title()
-                ].copy()
-
-                # Ordenar por fecha de movimiento
-                if "Fecha" in mov_cli.columns:
-                    mov_cli["Fecha"] = pd.to_datetime(mov_cli["Fecha"], errors="coerce")
-                    mov_cli = mov_cli.sort_values("Fecha")
-
-                # Construir tabla de display
-                mov_tabla = pd.DataFrame()
-                if "Fecha" in mov_cli.columns:
-                    mov_tabla["Fecha"] = mov_cli["Fecha"].dt.strftime("%d/%m/%Y")
-                if "Documento" in mov_cli.columns:
-                    mov_tabla["Documento"] = mov_cli["Documento"].astype(str)
-                if "Descripción" in mov_cli.columns:
-                    mov_tabla["Descripción"] = mov_cli["Descripción"].astype(str)
-                if "Fecha vencimiento" in mov_cli.columns:
-                    mov_tabla["Vencimiento"] = pd.to_datetime(
-                        mov_cli["Fecha vencimiento"], errors="coerce"
-                    ).dt.strftime("%d/%m/%Y")
-                if "tipo" in mov_cli.columns:
-                    mov_tabla["Tipo"] = mov_cli["tipo"].astype(str)
-                for col_orig, col_dest in [("Debe ppal", "Debe"), ("Haber ppal", "Haber"), ("Saldo ppal", "Saldo")]:
-                    if col_orig in mov_cli.columns:
-                        vals = pd.to_numeric(mov_cli[col_orig], errors="coerce").fillna(0)
-                        mov_tabla[col_dest] = vals.map(
-                            lambda v: f"$ {v:,.0f}" if v != 0 else ""
-                        )
-
-                # Resumen rápido
-                debe_total  = pd.to_numeric(mov_cli.get("Debe ppal",  pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
-                haber_total = pd.to_numeric(mov_cli.get("Haber ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
-                saldo_final = pd.to_numeric(mov_cli.get("Saldo ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).iloc[-1] if len(mov_cli) else 0
-
-                m1, m2, m3 = st.columns(3)
-                m1.metric("Total facturado (Debe)", f"$ {debe_total:,.0f}")
-                m2.metric("Total cobrado (Haber)",  f"$ {haber_total:,.0f}")
-                m3.metric("Saldo actual",            f"$ {saldo_final:,.0f}")
-
-                st.dataframe(mov_tabla, use_container_width=True, hide_index=True)
-            else:
-                # Sin cliente seleccionado: mostrar resumen por cliente
-                if "Cliente" in df_cc_mov.columns:
-                    debe_col  = "Debe ppal"  if "Debe ppal"  in df_cc_mov.columns else None
-                    haber_col = "Haber ppal" if "Haber ppal" in df_cc_mov.columns else None
-                    saldo_col = "Saldo ppal" if "Saldo ppal" in df_cc_mov.columns else None
-
-                    agg_dict = {}
-                    if debe_col:  agg_dict["Facturado (Debe)"]  = (debe_col,  "sum")
-                    if haber_col: agg_dict["Cobrado (Haber)"]   = (haber_col, "sum")
-
-                    if agg_dict:
-                        resumen_mov = df_cc_mov.groupby("Cliente", as_index=False).agg(**agg_dict)
-                        if debe_col and haber_col:
-                            resumen_mov["Saldo neto"] = resumen_mov["Facturado (Debe)"] - resumen_mov["Cobrado (Haber)"]
-                        resumen_mov = resumen_mov.sort_values("Facturado (Debe)" if "Facturado (Debe)" in resumen_mov.columns else resumen_mov.columns[-1], ascending=False)
-                        for col in ["Facturado (Debe)", "Cobrado (Haber)", "Saldo neto"]:
-                            if col in resumen_mov.columns:
-                                resumen_mov[col] = resumen_mov[col].map(lambda v: f"$ {v:,.0f}")
-                        st.dataframe(resumen_mov, use_container_width=True, hide_index=True)
-
-        st.markdown("---")
 
         # ── Métricas ──────────────────────────────────────────────────────
         deuda_total   = df_cc_view[col_deuda_cc].sum()
@@ -1775,6 +1694,94 @@ if st.session_state["tab_nav"] == "CC":
         st.download_button("Exportar CC", csv_cc, "cc_saldos.csv", "text/csv")
  
  
+# ══════════════════════════════════════════════
+# SECCIÓN — CUENTA CORRIENTE
+# ══════════════════════════════════════════════
+if st.session_state["tab_nav"] == "Cuenta Corriente":
+    if sin_cc:
+        st.info("Sin datos de CC. Colocá cc_clientes.xlsx en data/raw/ y actualizá.")
+    else:
+        st.markdown("### Cuenta Corriente")
+
+        # ── Movimientos por cliente (Debe/Haber) ─────────────────────────
+        if df_cc_mov is None or df_cc_mov.empty:
+            st.info("Sin datos de movimientos. Cargá cc_clientes.xlsx y actualizá.")
+        else:
+            clientes_mov = sorted(
+                df_cc_mov["Cliente"].dropna().astype(str).str.strip().str.title().unique().tolist()
+            )
+            cliente_mov_sel = st.selectbox(
+                "Cliente",
+                options=[""] + clientes_mov,
+                format_func=lambda x: "— elegí un cliente para ver el detalle —" if x == "" else x,
+                key="cc_mov_cliente_sel",
+            )
+
+            if cliente_mov_sel:
+                mov_cli = df_cc_mov[
+                    df_cc_mov["Cliente"].astype(str).str.strip().str.title()
+                    == cliente_mov_sel.strip().title()
+                ].copy()
+
+                # Ordenar por fecha de movimiento
+                if "Fecha" in mov_cli.columns:
+                    mov_cli["Fecha"] = pd.to_datetime(mov_cli["Fecha"], errors="coerce")
+                    mov_cli = mov_cli.sort_values("Fecha")
+
+                # Construir tabla de display
+                mov_tabla = pd.DataFrame()
+                if "Fecha" in mov_cli.columns:
+                    mov_tabla["Fecha"] = mov_cli["Fecha"].dt.strftime("%d/%m/%Y")
+                if "Documento" in mov_cli.columns:
+                    mov_tabla["Documento"] = mov_cli["Documento"].astype(str)
+                if "Descripción" in mov_cli.columns:
+                    mov_tabla["Descripción"] = mov_cli["Descripción"].astype(str)
+                if "Fecha vencimiento" in mov_cli.columns:
+                    mov_tabla["Vencimiento"] = pd.to_datetime(
+                        mov_cli["Fecha vencimiento"], errors="coerce"
+                    ).dt.strftime("%d/%m/%Y")
+                if "tipo" in mov_cli.columns:
+                    mov_tabla["Tipo"] = mov_cli["tipo"].astype(str)
+                for col_orig, col_dest in [("Debe ppal", "Debe"), ("Haber ppal", "Haber"), ("Saldo ppal", "Saldo")]:
+                    if col_orig in mov_cli.columns:
+                        vals = pd.to_numeric(mov_cli[col_orig], errors="coerce").fillna(0)
+                        mov_tabla[col_dest] = vals.map(
+                            lambda v: f"$ {v:,.0f}" if v != 0 else ""
+                        )
+
+                # Resumen rápido
+                debe_total  = pd.to_numeric(mov_cli.get("Debe ppal",  pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                haber_total = pd.to_numeric(mov_cli.get("Haber ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).sum()
+                saldo_final = pd.to_numeric(mov_cli.get("Saldo ppal", pd.Series(dtype=float)), errors="coerce").fillna(0).iloc[-1] if len(mov_cli) else 0
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total facturado (Debe)", f"$ {debe_total:,.0f}")
+                m2.metric("Total cobrado (Haber)",  f"$ {haber_total:,.0f}")
+                m3.metric("Saldo actual",            f"$ {saldo_final:,.0f}")
+
+                st.dataframe(mov_tabla, use_container_width=True, hide_index=True)
+            else:
+                # Sin cliente seleccionado: mostrar resumen por cliente
+                if "Cliente" in df_cc_mov.columns:
+                    debe_col  = "Debe ppal"  if "Debe ppal"  in df_cc_mov.columns else None
+                    haber_col = "Haber ppal" if "Haber ppal" in df_cc_mov.columns else None
+                    saldo_col = "Saldo ppal" if "Saldo ppal" in df_cc_mov.columns else None
+
+                    agg_dict = {}
+                    if debe_col:  agg_dict["Facturado (Debe)"]  = (debe_col,  "sum")
+                    if haber_col: agg_dict["Cobrado (Haber)"]   = (haber_col, "sum")
+
+                    if agg_dict:
+                        resumen_mov = df_cc_mov.groupby("Cliente", as_index=False).agg(**agg_dict)
+                        if debe_col and haber_col:
+                            resumen_mov["Saldo neto"] = resumen_mov["Facturado (Debe)"] - resumen_mov["Cobrado (Haber)"]
+                        resumen_mov = resumen_mov.sort_values("Facturado (Debe)" if "Facturado (Debe)" in resumen_mov.columns else resumen_mov.columns[-1], ascending=False)
+                        for col in ["Facturado (Debe)", "Cobrado (Haber)", "Saldo neto"]:
+                            if col in resumen_mov.columns:
+                                resumen_mov[col] = resumen_mov[col].map(lambda v: f"$ {v:,.0f}")
+                        st.dataframe(resumen_mov, use_container_width=True, hide_index=True)
+
+
 # ══════════════════════════════════════════════
 # SECCIÓN 3 — CLIENTES (cruce facturación + CC)
 # ══════════════════════════════════════════════
@@ -2075,7 +2082,7 @@ if st.session_state.get("tab_nav") == "Admin" and _es_superusuario:
 
             # ── Pestañas ──
             st.markdown('<div class="admin-label">Pestañas habilitadas</div>', unsafe_allow_html=True)
-            _tabs_disponibles = ["Facturación", "CC", "Clientes"]
+            _tabs_disponibles = ["Facturación", "Composición de saldos", "Cuenta Corriente", "Clientes"]
             _tabs_actuales = _uprefs.get("tabs", [])
             _tabs_val = st.multiselect(
                 f"tabs_{_uname}",
