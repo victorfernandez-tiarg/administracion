@@ -1228,8 +1228,8 @@ if _es_superusuario:
             st.caption(f"Impacto CC por relación Facturación↔Cliente: {len(clientes_rel):,} clientes")
         cerrar_bloque_mobile_stack()
 else:
-    clientes_sel = clientes_opts
-    centros_sel  = centros_opts
+    clientes_sel  = clientes_opts if _clientes_perm else []
+    centros_sel   = centros_opts  if _centros_perm  else []
     modo_clientes = "Incluir seleccionados"
     modo_centros  = "Incluir seleccionados"
 
