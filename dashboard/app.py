@@ -1798,25 +1798,7 @@ if st.session_state["tab_nav"] == "Cuenta Corriente":
 
                 st.dataframe(mov_tabla, use_container_width=True, hide_index=True)
             else:
-                # Sin cliente seleccionado: mostrar resumen por cliente
-                if "Cliente" in df_cc_mov.columns:
-                    debe_col  = "Debe ppal"  if "Debe ppal"  in df_cc_mov.columns else None
-                    haber_col = "Haber ppal" if "Haber ppal" in df_cc_mov.columns else None
-                    saldo_col = "Saldo ppal" if "Saldo ppal" in df_cc_mov.columns else None
-
-                    agg_dict = {}
-                    if debe_col:  agg_dict["Facturado (Debe)"]  = (debe_col,  "sum")
-                    if haber_col: agg_dict["Cobrado (Haber)"]   = (haber_col, "sum")
-
-                    if agg_dict:
-                        resumen_mov = df_cc_mov.groupby("Cliente", as_index=False).agg(**agg_dict)
-                        if debe_col and haber_col:
-                            resumen_mov["Saldo neto"] = resumen_mov["Facturado (Debe)"] - resumen_mov["Cobrado (Haber)"]
-                        resumen_mov = resumen_mov.sort_values("Facturado (Debe)" if "Facturado (Debe)" in resumen_mov.columns else resumen_mov.columns[-1], ascending=False)
-                        for col in ["Facturado (Debe)", "Cobrado (Haber)", "Saldo neto"]:
-                            if col in resumen_mov.columns:
-                                resumen_mov[col] = resumen_mov[col].map(lambda v: f"$ {v:,.0f}")
-                        st.dataframe(resumen_mov, use_container_width=True, hide_index=True)
+                st.caption("Seleccioná un cliente para ver el detalle de movimientos.")
 
 
 # ══════════════════════════════════════════════
