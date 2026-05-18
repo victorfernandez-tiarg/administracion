@@ -671,11 +671,24 @@ def _derivar_comp_fallback(df_mov: pd.DataFrame, df_saldos_base: pd.DataFrame) -
         return pd.DataFrame()
     cargos["__fv"] = pd.to_datetime(cargos["Fecha vencimiento"], errors="coerce") if "Fecha vencimiento" in cargos.columns else pd.NaT
     cargos["__fm"] = pd.to_datetime(cargos["Fecha"], errors="coerce") if "Fecha" in cargos.columns else pd.NaT
+    # Mapa cliente → centro de costo principal (desde df_saldos_base)
+    col_centro = "centro_costo_principal" if "centro_costo_principal" in df_saldos_base.columns else None
+    centro_por_cliente: dict = {}
+    if col_centro:
+        centro_por_cliente = (
+            df_saldos_base[["Cliente", col_centro]]
+            .dropna(subset=[col_centro])
+            .drop_duplicates("Cliente")
+            .set_index("Cliente")[col_centro]
+            .astype(str)
+            .to_dict()
+        )
     filas = []
     for row in df_saldos_base[df_saldos_base["saldo_actual"] > 0][["Cliente", "saldo_actual"]].itertuples(index=False):
         sr = max(float(row.saldo_actual), 0.0)
         if sr <= 0:
             continue
+        centro = centro_por_cliente.get(row.Cliente, "Sin centro")
         cc = cargos[cargos["Cliente"] == row.Cliente].sort_values(["__fv", "__fm"], ascending=[False, False])
         for _, c in cc.iterrows():
             if sr <= 0:
@@ -686,7 +699,7 @@ def _derivar_comp_fallback(df_mov: pd.DataFrame, df_saldos_base: pd.DataFrame) -
             filas.append({
                 "Cliente":           row.Cliente,
                 "cliente_norm":      normalizar_nombre_cliente(row.Cliente),
-                "centro_costo":      "Sin centro",
+                "centro_costo":      centro,
                 "saldo_abierto":     round(t, 2),
                 "venc_comp":         fv,
                 "Documento_ref":     str(c.get("Documento", "")),
