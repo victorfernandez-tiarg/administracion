@@ -1392,10 +1392,17 @@ if centros_sel:
         if df_cc_mov is not None and "Cliente" in df_cc_mov.columns:
             df_cc_mov = df_cc_mov[df_cc_mov["Cliente"].astype(str).str.strip().str.title().isin(clientes_centro)]
 
+    # Si el filtro de centros vació df_cc_comp, re-derivar desde df_saldos ya filtrado
+    if df_cc_comp is not None and df_cc_comp.empty and not df_saldos.empty and df_cc_mov is not None and not df_cc_mov.empty:
+        df_cc_comp = _derivar_comp_fallback(df_cc_mov, df_saldos)
+
 if not sin_cc:
     sin_cc = df_saldos.empty
 if not sin_fact:
     sin_fact = df.empty
+# Actualizar sin_comp si la re-derivación repobló df_cc_comp
+if sin_comp and df_cc_comp is not None and not df_cc_comp.empty:
+    sin_comp = False
 
 
 def _col_num(df: pd.DataFrame, col: str) -> pd.Series:
