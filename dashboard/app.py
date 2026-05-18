@@ -1604,24 +1604,34 @@ if st.session_state["tab_nav"] == "Composición de saldos":
         top10_tabla["Saldo_fmt"]    = top10_tabla["Saldo"].map(lambda v: f"$ {v:,.0f}")
         top10_tabla["Vencido_fmt"]  = top10_tabla["Vencido"].map(lambda v: f"$ {v:,.0f}")
 
-        _fila_total = pd.DataFrame([{
-            "Cliente":      "TOTAL",
-            "Saldo_fmt":    f"$ {top10_tabla['Saldo'].sum():,.0f}",
-            "Vencido_fmt":  f"$ {top10_tabla['Vencido'].sum():,.0f}",
-            "Días vencido": "",
-            "Estado":       "",
-        }])
-        _display_top10 = pd.concat([
-            top10_tabla[["Cliente", "Saldo_fmt", "Vencido_fmt", "Días vencido", "Estado"]],
-            _fila_total,
-        ], ignore_index=True)
+        _total_saldo   = top10_tabla["Saldo"].sum()
+        _total_vencido = top10_tabla["Vencido"].sum()
 
         evento_top10 = st.dataframe(
-            _display_top10.rename(columns={"Saldo_fmt": "Saldo", "Vencido_fmt": "Vencido"}),
+            top10_tabla[["Cliente", "Saldo_fmt", "Vencido_fmt", "Días vencido", "Estado"]].rename(columns={
+                "Saldo_fmt": "Saldo",
+                "Vencido_fmt": "Vencido",
+            }),
             use_container_width=True,
             hide_index=True,
             on_select="rerun",
             selection_mode="multi-row",
+        )
+        st.markdown(
+            '<style>.totales-deudores { margin-top: -0.55rem; }</style>'
+            '<div class="totales-deudores"></div>',
+            unsafe_allow_html=True,
+        )
+        st.dataframe(
+            pd.DataFrame([{
+                "Cliente":      "TOTAL",
+                "Saldo":        f"$ {_total_saldo:,.0f}",
+                "Vencido":      f"$ {_total_vencido:,.0f}",
+                "Días vencido": "",
+                "Estado":       "",
+            }]),
+            use_container_width=True,
+            hide_index=True,
         )
 
         if evento_top10.selection["rows"]:
