@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import date
 import warnings
 
-from etl.procesar_composicion import cargar_composicion_saldos
+from etl.procesar_composicion import cargar_composicion_saldos, normalizar_nombre_cliente
 from etl.db import guardar
 
 warnings.filterwarnings(
@@ -285,6 +285,12 @@ def procesar_cc() -> tuple:
         ]:
             if col not in saldos.columns:
                 saldos[col] = None
+    else:
+        # Sin archivo de composición: derivar comprobantes pendientes desde movimientos
+        comp_derivada = derivar_comprobantes_pendientes(df_mov, saldos, hoy)
+        if not comp_derivada.empty:
+            guardar(comp_derivada, "cc_composicion")
+            print(f"  \u2192 cc_composicion derivado de movimientos: {len(comp_derivada)} comprobantes")
     saldos["aging"]        = saldos["dias_vencido"].apply(calcular_aging)
 
     # Totales históricos por cliente
@@ -305,6 +311,66 @@ def procesar_cc() -> tuple:
     ).reset_index(drop=True)
 
     return df, saldos
+
+
+def derivar_comprobantes_pendientes(
+    df_mov: pd.DataFrame, saldos: pd.DataFrame, hoy: pd.Timestamp
+) -> pd.DataFrame:
+    """
+    Fallback cuando no existe archivo de composición de saldos:
+    deriva los comprobantes pendientes directamente desde cc_clientes.xlsx.
+    Aplica el saldo actual de cada cliente contra sus facturas más recientes (LIFO)
+    para determinar qué facturas permanecen abiertas y las guarda como cc_composicion.
+    """
+    cols_necesarias = ["Cliente", "Documento", "Debe ppal", "tipo"]
+    if any(c not in df_mov.columns for c in cols_necesarias):
+        return pd.DataFrame()
+
+    col_fv = "Fecha vencimiento" if "Fecha vencimiento" in df_mov.columns else None
+    col_f  = "Fecha"             if "Fecha"             in df_mov.columns else None
+
+    cargos = df_mov[df_mov["tipo"] == "Factura/Cargo"].copy()
+    cargos = cargos[cargos["Cliente"].notna() & cargos["Cliente"].ne("")]
+    cargos["_importe"] = pd.to_numeric(cargos["Debe ppal"], errors="coerce").fillna(0)
+    cargos = cargos[cargos["_importe"] > 0].copy()
+    cargos["_fecha_venc"] = pd.to_datetime(cargos[col_fv], errors="coerce") if col_fv else pd.NaT
+    cargos["_fecha_mov"]  = pd.to_datetime(cargos[col_f],  errors="coerce") if col_f  else pd.NaT
+    cargos["_fv_sort"] = cargos["_fecha_venc"].fillna(pd.Timestamp.min)
+    cargos["_fm_sort"] = cargos["_fecha_mov"].fillna(pd.Timestamp.min)
+
+    deudores = saldos[saldos["saldo_actual"] > 0][["Cliente", "saldo_actual"]]
+
+    filas = []
+    for cliente, saldo_actual in zip(deudores["Cliente"], deudores["saldo_actual"]):
+        saldo_restante = max(float(saldo_actual), 0.0)
+        if saldo_restante <= 0:
+            continue
+
+        cargos_cli = cargos[cargos["Cliente"] == cliente].sort_values(
+            ["_fv_sort", "_fm_sort"], ascending=[False, False]
+        )
+        for _, row in cargos_cli.iterrows():
+            if saldo_restante <= 0:
+                break
+            tramo = min(float(row["_importe"]), saldo_restante)
+            if tramo <= 0:
+                continue
+            saldo_restante -= tramo
+            fv = row["_fecha_venc"]
+            dias = int((hoy - fv).days) if pd.notna(fv) else 0
+            filas.append({
+                "Cliente":           cliente,
+                "cliente_norm":      normalizar_nombre_cliente(cliente),
+                "centro_costo":      "Sin centro",
+                "saldo_abierto":     round(tramo, 2),
+                "venc_comp":         fv,
+                "Documento_ref":     str(row.get("Documento", "")),
+                "dias_vencido_item": dias,
+            })
+
+    if not filas:
+        return pd.DataFrame()
+    return pd.DataFrame(filas)
 
 
 def correr_etl_cc(sync_drive: bool | None = None):
