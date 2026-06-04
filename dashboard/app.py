@@ -405,6 +405,8 @@ def _get_auth_config() -> tuple[str, dict]:
     raw = os.getenv("AUTH_USERS", "")
     print(f"[AUTH DEBUG] AUTH_SALT presente: {bool(salt)} len={len(salt)}")
     print(f"[AUTH DEBUG] AUTH_USERS presente: {bool(raw)} len={len(raw)} preview={raw[:40] if raw else ''}")
+    auth_vars = [k for k in os.environ if "AUTH" in k or "USER" in k]
+    print(f"[AUTH DEBUG] variables con AUTH/USER: {auth_vars}")
     for entry in raw.split(","):
         entry = entry.strip()
         if ":" in entry:
