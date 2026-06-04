@@ -404,7 +404,7 @@ def _get_auth_config() -> tuple[str, dict]:
     try:
         salt = st.secrets.get("auth", {}).get("salt", "")
         users = dict(st.secrets.get("users", {}))
-    except FileNotFoundError:
+    except Exception:
         pass
 
     # 2) Fallback: variables de entorno (Railway / Docker)
