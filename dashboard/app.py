@@ -401,18 +401,20 @@ def _get_auth_config() -> tuple[str, dict]:
     users: dict = {}
 
     # 1) Variables de entorno (Railway / Docker) — prioridad máxima
-    salt = os.getenv("AUTH_SALT", "")
-    raw = os.getenv("AUTH_USERS", "")
-    print(f"[AUTH DEBUG] AUTH_SALT presente: {bool(salt)} len={len(salt)}")
-    print(f"[AUTH DEBUG] AUTH_USERS presente: {bool(raw)} len={len(raw)} preview={raw[:40] if raw else ''}")
-    auth_vars = [k for k in os.environ if "AUTH" in k or "USER" in k]
-    print(f"[AUTH DEBUG] variables con AUTH/USER: {auth_vars}")
+    # Buscar por clave normalizada (strip) para tolerar \n u otros chars invisibles
+    salt = ""
+    raw = ""
+    for k, v in os.environ.items():
+        k_clean = k.strip()
+        if k_clean == "AUTH_SALT" and not salt:
+            salt = v.strip()
+        if k_clean == "AUTH_USERS" and not raw:
+            raw = v.strip()
     for entry in raw.split(","):
         entry = entry.strip()
         if ":" in entry:
             u, h = entry.split(":", 1)
             users[u.strip()] = h.strip()
-    print(f"[AUTH DEBUG] usuarios cargados desde env: {list(users.keys())}")
 
     # 2) Fallback: st.secrets (local / .streamlit/secrets.toml)
     if not salt:
