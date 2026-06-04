@@ -403,11 +403,14 @@ def _get_auth_config() -> tuple[str, dict]:
     # 1) Variables de entorno (Railway / Docker) — prioridad máxima
     salt = os.getenv("AUTH_SALT", "")
     raw = os.getenv("AUTH_USERS", "")
+    print(f"[AUTH DEBUG] AUTH_SALT presente: {bool(salt)} len={len(salt)}")
+    print(f"[AUTH DEBUG] AUTH_USERS presente: {bool(raw)} len={len(raw)} preview={raw[:40] if raw else ''}")
     for entry in raw.split(","):
         entry = entry.strip()
         if ":" in entry:
             u, h = entry.split(":", 1)
             users[u.strip()] = h.strip()
+    print(f"[AUTH DEBUG] usuarios cargados desde env: {list(users.keys())}")
 
     # 2) Fallback: st.secrets (local / .streamlit/secrets.toml)
     if not salt:
