@@ -392,7 +392,7 @@ import hashlib
 def _get_auth_config() -> tuple[str, dict]:
     """
     Devuelve (salt, {usuario: hash}).
-    Prioridad: st.secrets → variables de entorno.
+    Prioridad: variables de entorno → st.secrets (local).
     Variables de entorno:
         AUTH_SALT   = "el_salt"
         AUTH_USERS  = "admin:hash1,usuario2:hash2"
@@ -400,23 +400,26 @@ def _get_auth_config() -> tuple[str, dict]:
     salt = ""
     users: dict = {}
 
-    # 1) Intentar st.secrets (local / .streamlit/secrets.toml)
-    try:
-        salt = st.secrets.get("auth", {}).get("salt", "")
-        users = dict(st.secrets.get("users", {}))
-    except Exception:
-        pass
+    # 1) Variables de entorno (Railway / Docker) — prioridad máxima
+    salt = os.getenv("AUTH_SALT", "")
+    raw = os.getenv("AUTH_USERS", "")
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if ":" in entry:
+            u, h = entry.split(":", 1)
+            users[u.strip()] = h.strip()
 
-    # 2) Fallback: variables de entorno (Railway / Docker)
+    # 2) Fallback: st.secrets (local / .streamlit/secrets.toml)
     if not salt:
-        salt = os.getenv("AUTH_SALT", "")
+        try:
+            salt = st.secrets.get("auth", {}).get("salt", "")
+        except Exception:
+            pass
     if not users:
-        raw = os.getenv("AUTH_USERS", "")          # formato: "admin:hash1,user2:hash2"
-        for entry in raw.split(","):
-            entry = entry.strip()
-            if ":" in entry:
-                u, h = entry.split(":", 1)
-                users[u.strip()] = h.strip()
+        try:
+            users = dict(st.secrets.get("users", {}))
+        except Exception:
+            pass
 
     return salt, users
 
